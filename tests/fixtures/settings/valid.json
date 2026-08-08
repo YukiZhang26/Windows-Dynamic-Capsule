@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "monitorTarget": "followActiveWindow",
+  "topGap": 10,
+  "enableAnimations": true,
+  "hideInFullscreen": true,
+  "doNotDisturb": false,
+  "startWithWindows": false,
+  "privacyLevel": "summary",
+  "notificationAllowList": [],
+  "notificationBlockList": []
+}

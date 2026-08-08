@@ -1,0 +1,31 @@
+.dotnet/
+.tools/
+.nuget/
+.artifacts/
+artifacts/
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Local Microsoft Store identity and signing material
+packaging/store-submission.json
+*.pfx
+*.p12
+*.pvk
+*.snk
+*.key
+*.pem
+
+# Local environment and generated packages
+.env
+.env.*
+!.env.example
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+
+# Internal working document; PROJECT.md is the public specification
+Windows_Dynamic_Capsule_PRD_UI_Animation.docx

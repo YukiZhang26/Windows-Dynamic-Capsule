@@ -1,0 +1,101 @@
+<Window x:Class="DynamicCapsule.TimerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="新建计时器"
+        Width="400"
+        Height="310"
+        Background="{DynamicResource WindowSurfaceBrush}"
+        KeyboardNavigation.TabNavigation="Cycle"
+        PreviewKeyDown="OnPreviewKeyDown"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="MinWidth" Value="84" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Padding" Value="14,0" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="26,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="18" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock FontSize="21"
+                   FontWeight="SemiBold"
+                   Text="自定义倒计时" />
+
+        <StackPanel Grid.Row="2">
+            <Label Padding="0"
+                   FontSize="12"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=MinutesTextBox}"
+                   Content="时长（1–1440 分钟）(_M)" />
+            <TextBox x:Name="MinutesTextBox"
+                     Height="34"
+                     Margin="0,7,0,0"
+                     Padding="9,5"
+                     TabIndex="0"
+                     AutomationProperties.Name="倒计时分钟数"
+                     Text="25" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="4">
+            <Label Padding="0"
+                   FontSize="12"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=TitleTextBox}"
+                   Content="名称（可选）(_N)" />
+            <TextBox x:Name="TitleTextBox"
+                     Height="34"
+                     Margin="0,7,0,0"
+                     Padding="9,5"
+                     TabIndex="1"
+                     MaxLength="80"
+                     Text="专注计时" />
+            <TextBlock x:Name="ValidationText"
+                       Margin="0,7,0,0"
+                       FontSize="11"
+                       Foreground="{DynamicResource DangerBrush}"
+                       AutomationProperties.LiveSetting="Assertive"
+                       AutomationProperties.Name="输入错误"
+                       Visibility="Collapsed" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="5"
+                   Margin="0,12,0,0"
+                   FontSize="11"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   TextWrapping="Wrap"
+                   Text="也可以直接在 Windows“时钟”中启动计时器。打开一次“时钟 &gt; 计时器”后，灵动岛会同步状态；窗口关闭后继续镜像倒计时，再次打开时自动校准。" />
+
+        <StackPanel Grid.Row="6"
+                    HorizontalAlignment="Right"
+                    Orientation="Horizontal">
+            <Button Click="OnCancelClick"
+                    TabIndex="2"
+                    IsCancel="True"
+                    Content="取消(_C)" />
+            <Button Click="OnStartClick"
+                    TabIndex="3"
+                    IsDefault="True"
+                    Background="{DynamicResource AccentBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    Foreground="{DynamicResource AccentTextBrush}"
+                    Content="开始(_S)" />
+        </StackPanel>
+    </Grid>
+</Window>

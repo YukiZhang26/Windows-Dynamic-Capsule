@@ -1,0 +1,261 @@
+<Window x:Class="DynamicCapsule.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dynamic Capsule 设置"
+        Width="560"
+        Height="820"
+        Background="{DynamicResource WindowSurfaceBrush}"
+        KeyboardNavigation.TabNavigation="Cycle"
+        Loaded="OnLoaded"
+        PreviewKeyDown="OnPreviewKeyDown"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        SizeToContent="Manual"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="MinWidth" Value="84" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+        </Style>
+    </Window.Resources>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  PanningMode="VerticalOnly"
+                  VerticalScrollBarVisibility="Auto">
+    <Grid Margin="28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="22" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="22" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="22" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock FontSize="22"
+                       FontWeight="SemiBold"
+                       Text="基础设置" />
+            <TextBlock Margin="0,6,0,0"
+                       FontSize="12"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Text="设置会保存在当前 Windows 用户目录中。" />
+            <TextBlock x:Name="SystemAccessibilityText"
+                       Margin="0,4,0,0"
+                       FontSize="11"
+                       Foreground="{DynamicResource AccentLabelBrush}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2">
+            <Label Padding="0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=MonitorTargetCombo}"
+                   Content="显示位置(_M)" />
+            <ComboBox x:Name="MonitorTargetCombo"
+                      Height="34"
+                      Margin="0,8,0,0"
+                      Padding="8,0"
+                      TabIndex="0"
+                      AutomationProperties.Name="胶囊显示位置"
+                      SelectedIndex="0">
+                <ComboBoxItem Content="跟随当前活动窗口所在显示器" />
+                <ComboBoxItem Content="始终显示在主显示器" />
+            </ComboBox>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Label Padding="0"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       Target="{Binding ElementName=TopGapSlider}"
+                       Content="顶部间距(_G)" />
+                <TextBlock x:Name="TopGapValueText"
+                           Grid.Column="1"
+                           FontSize="12"
+                           Foreground="{DynamicResource AccentLabelBrush}"
+                           Text="10 DIP" />
+            </Grid>
+            <Slider x:Name="TopGapSlider"
+                    Margin="0,8,0,0"
+                    IsSnapToTickEnabled="True"
+                    TabIndex="1"
+                    AutomationProperties.Name="顶部间距"
+                    Maximum="48"
+                    Minimum="0"
+                    TickFrequency="1"
+                    Value="10" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="6">
+            <Border Margin="0,0,0,22"
+                    Padding="15,13"
+                    Background="{DynamicResource SubtleSurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="13">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="NotificationStatusDot"
+                                 Width="9"
+                                 Height="9"
+                                 Margin="0,0,9,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{DynamicResource AccentLabelBrush}" />
+                        <TextBlock x:Name="NotificationStatusTitleText"
+                                   Grid.Column="1"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Text="正在检查 Windows 通知" />
+                    </Grid>
+                    <TextBlock x:Name="NotificationStatusMessageText"
+                               Margin="18,7,0,0"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <StackPanel Margin="10,12,0,0"
+                                HorizontalAlignment="Left"
+                                Orientation="Horizontal">
+                        <Button x:Name="OpenNotificationSettingsButton"
+                                TabIndex="2"
+                                Click="OnOpenNotificationSettingsClick"
+                                Content="打开通知设置(_O)" />
+                        <Button x:Name="PreviewNotificationButton"
+                                TabIndex="3"
+                                Click="OnPreviewNotificationClick"
+                                Content="预览通知(_V)" />
+                    </StackPanel>
+                    <TextBlock x:Name="NotificationActionStatusText"
+                               Margin="18,8,0,0"
+                               FontSize="10"
+                               Foreground="{DynamicResource AccentLabelBrush}"
+                               AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
+
+            <CheckBox x:Name="EnableAnimationsCheckBox"
+                      TabIndex="4"
+                      IsChecked="True"
+                      AutomationProperties.HelpText="系统减少动画开启时，此设置会被临时覆盖。"
+                      Content="启用展开和尺寸动画(_A)" />
+            <CheckBox x:Name="HideInFullscreenCheckBox"
+                      Margin="0,14,0,0"
+                      TabIndex="5"
+                      IsChecked="True"
+                      Content="检测到目标显示器全屏应用时隐藏(_F)" />
+            <CheckBox x:Name="DoNotDisturbCheckBox"
+                      Margin="0,14,0,0"
+                      TabIndex="6"
+                      AutomationProperties.HelpText="只控制胶囊自己的事件弹窗，不读取也不跟随 Windows 请勿打扰状态。"
+                      ToolTip="开启后胶囊保留媒体，但暂不显示事件；此开关独立于 Windows 请勿打扰。"
+                      Content="胶囊勿扰（独立于 Windows 请勿打扰）(_D)" />
+            <CheckBox x:Name="StartWithWindowsCheckBox"
+                      Margin="0,14,0,0"
+                      TabIndex="7"
+                      Content="登录 Windows 时启动（当前用户）(_W)" />
+            <Label Margin="0,22,0,0"
+                   Padding="0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=PrivacyLevelCombo}"
+                   Content="事件隐私级别(_P)" />
+            <ComboBox x:Name="PrivacyLevelCombo"
+                      Height="34"
+                      Margin="0,8,0,0"
+                      Padding="8,0"
+                      TabIndex="9"
+                      AutomationProperties.Name="事件隐私级别"
+                      SelectedIndex="1">
+                <ComboBoxItem Content="完整内容" />
+                <ComboBoxItem Content="摘要（正文最多 72 字符）" />
+                <ComboBoxItem Content="遮蔽标题和正文" />
+                <ComboBoxItem Content="仅显示来源和状态图标" />
+            </ComboBox>
+
+            <Label Margin="0,18,0,0"
+                   Padding="0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=NotificationAllowListTextBox}"
+                   Content="通知允许列表（可留空）(_L)" />
+            <TextBox x:Name="NotificationAllowListTextBox"
+                     Height="54"
+                     Margin="0,7,0,0"
+                     Padding="8,5"
+                     TabIndex="10"
+                     AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto"
+                     ToolTip="每行填写一个 AppUserModelId 或应用显示名称；非空时只显示这些来源。" />
+
+            <Label Margin="0,16,0,0"
+                   Padding="0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=NotificationBlockListTextBox}"
+                   Content="通知屏蔽列表（优先于允许列表）(_B)" />
+            <TextBox x:Name="NotificationBlockListTextBox"
+                     Height="54"
+                     Margin="0,7,0,0"
+                     Padding="8,5"
+                     TabIndex="11"
+                     AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto"
+                     ToolTip="每行填写一个 AppUserModelId 或应用显示名称。" />
+        </StackPanel>
+
+        <TextBlock x:Name="SettingsPathText"
+                   Grid.Row="7"
+                   Margin="0,22,0,0"
+                   VerticalAlignment="Top"
+                   FontSize="10"
+                   Foreground="{DynamicResource MutedTextBrush}"
+                   TextTrimming="CharacterEllipsis" />
+
+        <StackPanel Grid.Row="8"
+                    HorizontalAlignment="Right"
+                    Orientation="Horizontal">
+            <Button Click="OnCancelClick"
+                    TabIndex="12"
+                    IsCancel="True"
+                    Content="取消(_C)" />
+            <Button Click="OnSaveClick"
+                    TabIndex="13"
+                    IsDefault="True"
+                    Background="{DynamicResource AccentBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    Foreground="{DynamicResource AccentTextBrush}"
+                    Content="保存(_S)" />
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Window>

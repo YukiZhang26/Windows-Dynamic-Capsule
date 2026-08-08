@@ -1,0 +1,39 @@
+<Application x:Class="DynamicCapsule.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <FontFamily x:Key="CapsuleFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+        <SolidColorBrush x:Key="CompactCapsuleSurfaceBrush" Color="#C816181D" />
+        <SolidColorBrush x:Key="CapsuleSurfaceBrush" Color="#F216181D" />
+        <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FF14151A" />
+        <SolidColorBrush x:Key="PrimaryTextBrush" Color="#FFF3F4F7" />
+        <SolidColorBrush x:Key="SecondaryTextBrush" Color="#FFADB3C0" />
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#FF777F8E" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF2A63F5" />
+        <SolidColorBrush x:Key="AccentTextBrush" Color="White" />
+        <SolidColorBrush x:Key="AccentLabelBrush" Color="#FF8EA9EE" />
+        <SolidColorBrush x:Key="BorderBrush" Color="#38FFFFFF" />
+        <SolidColorBrush x:Key="SubtleSurfaceBrush" Color="#14FFFFFF" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#FFFF7777" />
+        <SolidColorBrush x:Key="ProgressTrackBrush" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="ProgressBrush" Color="#FF58D68D" />
+        <SolidColorBrush x:Key="FocusBrush" Color="#FF7EA2FF" />
+
+        <Style x:Key="{x:Static SystemParameters.FocusVisualStyleKey}"
+               TargetType="{x:Type Control}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border Margin="-3"
+                                BorderBrush="{DynamicResource FocusBrush}"
+                                BorderThickness="2"
+                                CornerRadius="3">
+                            <AdornedElementPlaceholder />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Application.Resources>
+</Application>

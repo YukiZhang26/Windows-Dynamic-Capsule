@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/DynamicCapsule/DynamicCapsule.csproj" />
+  <Project Path="tests/DynamicCapsule.CoreProbe/DynamicCapsule.CoreProbe.csproj" />
+</Solution>
