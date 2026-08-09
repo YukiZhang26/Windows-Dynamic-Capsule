@@ -122,6 +122,15 @@ if ($settings.privacyLevel -notin @(
     return
 }
 
+$lyricsFallbackProperty =
+    $settings.PSObject.Properties["lyricsFallbackProvider"]
+if ($null -ne $lyricsFallbackProperty -and
+    $lyricsFallbackProperty.Value -notin @("none", "qqMusic")) {
+    New-Result -Valid $false -WouldUseDefaults $true `
+        -Reason "lyricsFallbackProvider is invalid."
+    return
+}
+
 $allowListIsValid =
     $null -ne $settings.notificationAllowList -and
     $settings.notificationAllowList -is [array]

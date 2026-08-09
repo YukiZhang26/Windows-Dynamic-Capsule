@@ -66,6 +66,10 @@ $sizeChangedBody = Read-MethodBody `
     -Source $windowCode `
     -MethodSignature "private void OnSizeChanged" `
     -NextMethodSignature "private void ToggleExpanded"
+$compactRingBody = Read-MethodBody `
+    -Source $windowCode `
+    -MethodSignature "private static double GetCompactRingValue" `
+    -NextMethodSignature "private static bool IsBrowserDownload"
 
 $checks = @(
     [PSCustomObject]@{
@@ -204,9 +208,9 @@ $checks = @(
                 "1 - (remaining.TotalMilliseconds / _duration.TotalMilliseconds)") -and
             $clockTimerCode.Contains(
                 "1 - remaining.TotalMilliseconds") -and
-            $windowCode.Contains(
-                "return Math.Clamp(capsuleEvent.Progress ?? 0, 0, 1);") -and
-            -not $windowCode.Contains(
+            $compactRingBody.Contains("Math.Clamp(") -and
+            $compactRingBody.Contains("capsuleEvent.Progress") -and
+            -not $compactRingBody.Contains(
                 "return 1 - Math.Clamp(capsuleEvent.Progress")
     },
     [PSCustomObject]@{
@@ -346,11 +350,17 @@ $checks = @(
         Passed =
             $sizeChangedBody.Contains(
                 "if (_isAnimatingSize)") -and
-            $windowXaml.Contains('Width="504"') -and
-            $windowXaml.Contains('Height="238"') -and
+            $windowXaml.Contains('Width="530"') -and
+            $windowXaml.Contains('Height="286"') -and
             $windowXaml.Contains('x:Name="CapsuleSurface"') -and
             $windowCode.Contains(
-                "Width = ExpandedWidth;") -and
+                "private const double HostWidth = DualTaskWidth + SideArrowLaneWidth;") -and
+            $windowCode.Contains(
+                "private const double HostHeight = MediaExpandedHeight + MaximumTopGap;") -and
+            $windowCode.Contains(
+                "Width = HostWidth;") -and
+            $windowCode.Contains(
+                "Height = HostHeight;") -and
             $windowCode.Contains(
                 "Height = HostHeight;") -and
             -not $windowCode.Contains(

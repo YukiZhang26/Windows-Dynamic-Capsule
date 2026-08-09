@@ -29,6 +29,10 @@ public partial class SettingsWindow : Window
         HideInFullscreenCheckBox.IsChecked = settings.HideInFullscreen;
         DoNotDisturbCheckBox.IsChecked = settings.DoNotDisturb;
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
+        LyricsFallbackProviderCombo.SelectedIndex =
+            settings.LyricsFallbackProvider == LyricsFallbackProvider.QqMusic
+                ? 1
+                : 0;
         PrivacyLevelCombo.SelectedIndex = (int)settings.PrivacyLevel;
         NotificationAllowListTextBox.Text =
             string.Join(Environment.NewLine, settings.NotificationAllowList);
@@ -187,6 +191,10 @@ public partial class SettingsWindow : Window
             DoNotDisturb = DoNotDisturbCheckBox.IsChecked == true,
             TopStashed = _topStashed,
             StartWithWindows = StartWithWindowsCheckBox.IsChecked == true,
+            LyricsFallbackProvider =
+                LyricsFallbackProviderCombo.SelectedIndex == 1
+                    ? LyricsFallbackProvider.QqMusic
+                    : LyricsFallbackProvider.None,
             PrivacyLevel = (EventPrivacyLevel)Math.Clamp(
                 PrivacyLevelCombo.SelectedIndex,
                 0,
@@ -197,12 +205,13 @@ public partial class SettingsWindow : Window
                 NotificationBlockListTextBox.Text)
         }.Normalize();
 
-        DialogResult = true;
+        Close();
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        SavedSettings = null;
+        Close();
     }
 
     private void UpdateTopGapText()

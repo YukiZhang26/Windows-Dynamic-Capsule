@@ -186,6 +186,8 @@ public partial class CapsuleWindow : Window
         AccessibilityPreferences accessibilityPreferences)
     {
         _settings = settings.Normalize();
+        _lyricsService.UpdateFallbackProvider(
+            _settings.LyricsFallbackProvider);
         _isTopStashed = _settings.TopStashed;
         _accessibilityPreferences = accessibilityPreferences;
         InitializeComponent();
@@ -219,10 +221,8 @@ public partial class CapsuleWindow : Window
         _countdownTimerService.StatusChanged += OnCountdownStatusChanged;
         _stopwatchService.EventChanged += OnStopwatchEventChanged;
         _stopwatchService.StatusChanged += OnStopwatchStatusChanged;
-        _windowsClockTimerService.EventChanged +=
-            OnWindowsClockTimerEventChanged;
-        _windowsClockTimerService.EventRemoved +=
-            OnWindowsClockTimerEventRemoved;
+        _windowsClockTimerService.EventsChanged +=
+            OnWindowsClockTimerEventsChanged;
         _connectivityEventService.EventReceived +=
             OnConnectivityEventReceived;
         _browserDownloadProgressService.EventChanged +=
@@ -326,10 +326,8 @@ public partial class CapsuleWindow : Window
         _stopwatchService.EventChanged -= OnStopwatchEventChanged;
         _stopwatchService.StatusChanged -= OnStopwatchStatusChanged;
         _stopwatchService.Dispose();
-        _windowsClockTimerService.EventChanged -=
-            OnWindowsClockTimerEventChanged;
-        _windowsClockTimerService.EventRemoved -=
-            OnWindowsClockTimerEventRemoved;
+        _windowsClockTimerService.EventsChanged -=
+            OnWindowsClockTimerEventsChanged;
         _windowsClockTimerService.Dispose();
         _connectivityEventService.EventReceived -=
             OnConnectivityEventReceived;
@@ -400,6 +398,8 @@ public partial class CapsuleWindow : Window
         var previouslyAnimated = ShouldAnimate;
         var previousSettings = _settings;
         _settings = settings.Normalize();
+        _lyricsService.UpdateFallbackProvider(
+            _settings.LyricsFallbackProvider);
         var topStashChanged =
             previousSettings.TopStashed != _settings.TopStashed;
         _isTopStashed = _settings.TopStashed;
@@ -2050,14 +2050,17 @@ public partial class CapsuleWindow : Window
         StopwatchStatusChanged?.Invoke(status);
     }
 
-    private void OnWindowsClockTimerEventChanged(CapsuleEvent capsuleEvent)
+    private void OnWindowsClockTimerEventsChanged(
+        IReadOnlyList<CapsuleEvent> capsuleEvents,
+        IReadOnlyList<string> removedEventIds)
     {
-        PublishWithPolicy(capsuleEvent);
-    }
-
-    private void OnWindowsClockTimerEventRemoved(string eventId)
-    {
-        _eventScheduler.Remove(eventId);
+        var allowedEvents = capsuleEvents
+            .Select(capsuleEvent =>
+                _eventPolicyEngine.Evaluate(capsuleEvent, _settings).CapsuleEvent)
+            .Where(capsuleEvent => capsuleEvent is not null)
+            .Select(capsuleEvent => capsuleEvent!)
+            .ToArray();
+        _eventScheduler.PublishBatch(allowedEvents, removedEventIds);
     }
 
     private void OnConnectivityEventReceived(CapsuleEvent capsuleEvent)

@@ -15,7 +15,8 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
 
 - A non-activating, always-on-top WPF capsule window;
 - System media sessions, artwork, playback controls, and seekable progress;
-- Line-synchronized lyrics retrieved through LRCLIB;
+- Line-synchronized lyrics through LRCLIB, with an optional QQ Music fallback
+  and a 30-day local cache;
 - User-authorized Windows notification summaries with an independent Do Not
   Disturb mode;
 - Local tasks, browser downloads, countdown timers, stopwatches, and Windows

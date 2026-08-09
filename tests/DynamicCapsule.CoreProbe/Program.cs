@@ -1,6 +1,7 @@
 using DynamicCapsule.Models;
 using DynamicCapsule.Services;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 
 if (args.Any(argument => string.Equals(
@@ -152,7 +153,9 @@ Assert(
 
 VerifyPinnedPriority();
 VerifyPrimarySecondaryPresentation();
+VerifyBatchMerge();
 VerifySettingsFallback();
+await VerifyPersistentLyricsCacheAsync();
 VerifyWindowsClockTimerParsing();
 VerifyQqMusicSeekCommands();
 VerifyBrowserDownloadProgress();
@@ -169,7 +172,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine(
-    "Core probe passed: source rules, privacy, scheduling, settings, and Windows Clock timer parsing.");
+    "Core probe passed: source rules, privacy, batch scheduling, settings, persistent lyrics cache, and Windows Clock timer parsing.");
 return 0;
 
 int ProbeCapsuleQuickMenu()
@@ -379,6 +382,7 @@ void VerifySettingsFallback()
                 TopGap = 100,
                 TopStashed = true,
                 PrivacyLevel = EventPrivacyLevel.Masked,
+                LyricsFallbackProvider = LyricsFallbackProvider.None,
                 NotificationBlockList = [" app.id ", "APP.ID"]
             },
             out var saveError);
@@ -390,8 +394,33 @@ void VerifySettingsFallback()
             && loaded.Settings.TopGap == AppSettings.MaximumTopGap
             && loaded.Settings.TopStashed
             && loaded.Settings.PrivacyLevel == EventPrivacyLevel.Masked
+            && loaded.Settings.LyricsFallbackProvider
+                == LyricsFallbackProvider.None
             && loaded.Settings.NotificationBlockList.SequenceEqual(["app.id"]),
             "saved settings must normalize and round-trip");
+
+        File.WriteAllText(
+            settingsService.SettingsPath,
+            """
+            {
+              "schemaVersion": 3,
+              "monitorTarget": "followActiveWindow",
+              "topGap": 10,
+              "enableAnimations": true,
+              "hideInFullscreen": true,
+              "doNotDisturb": false,
+              "startWithWindows": false,
+              "privacyLevel": "summary",
+              "notificationAllowList": [],
+              "notificationBlockList": []
+            }
+            """);
+        var legacy = settingsService.Load();
+        Assert(
+            !legacy.UsedDefaults
+            && legacy.Settings.LyricsFallbackProvider
+                == LyricsFallbackProvider.QqMusic,
+            "existing schema 3 settings must gain the default lyrics fallback without reset");
 
         File.WriteAllText(settingsService.SettingsPath, "{ invalid json");
         var corrupt = settingsService.Load();
@@ -402,6 +431,95 @@ void VerifySettingsFallback()
             && corrupt.Settings.PrivacyLevel == EventPrivacyLevel.Summary
             && !string.IsNullOrWhiteSpace(corrupt.Warning),
             "corrupt settings must fall back to defaults with a warning");
+    }
+    finally
+    {
+        if (Directory.Exists(temporaryDirectory))
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+}
+
+async Task VerifyPersistentLyricsCacheAsync()
+{
+    var temporaryDirectory = Path.Combine(
+        Path.GetTempPath(),
+        $"dynamic-capsule-lyrics-{Guid.NewGuid():N}");
+    var snapshot = new MediaSnapshot(
+        "probe.player",
+        "Probe Player",
+        "Cache Song",
+        "Cache Artist",
+        "Cache Album",
+        null,
+        true,
+        true,
+        true,
+        true,
+        true,
+        TimeSpan.Zero,
+        TimeSpan.FromSeconds(180),
+        DateTimeOffset.UtcNow,
+        null);
+
+    try
+    {
+        var onlineHandler = new ProbeHttpMessageHandler(_ =>
+            new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "id": 1,
+                      "trackName": "Cache Song",
+                      "artistName": "Cache Artist",
+                      "albumName": "Cache Album",
+                      "duration": 180,
+                      "instrumental": false,
+                      "plainLyrics": "cached line",
+                      "syncedLyrics": "[00:01.00]cached line"
+                    }
+                    """)
+            });
+        using (var onlineClient = new HttpClient(onlineHandler)
+               {
+                   BaseAddress = new Uri("https://lrclib.net")
+               })
+        using (var onlineService = new LyricsService(
+                   onlineClient,
+                   temporaryDirectory))
+        {
+            onlineService.UpdateFallbackProvider(
+                LyricsFallbackProvider.None);
+            var onlineResult = await onlineService.GetLyricsAsync(
+                snapshot,
+                CancellationToken.None);
+            Assert(
+                onlineResult.Status == LyricsLookupStatus.Found
+                && onlineResult.Lines.Count == 1,
+                "online lyrics lookup must create a cacheable result");
+        }
+
+        var offlineHandler = new ProbeHttpMessageHandler(_ =>
+            new HttpResponseMessage(
+                System.Net.HttpStatusCode.ServiceUnavailable));
+        using var offlineClient = new HttpClient(offlineHandler)
+        {
+            BaseAddress = new Uri("https://lrclib.net")
+        };
+        using var offlineService = new LyricsService(
+            offlineClient,
+            temporaryDirectory);
+        offlineService.UpdateFallbackProvider(LyricsFallbackProvider.None);
+        var cachedResult = await offlineService.GetLyricsAsync(
+            snapshot,
+            CancellationToken.None);
+        Assert(
+            cachedResult.Status == LyricsLookupStatus.Found
+            && cachedResult.Lines.Single().Text == "cached line"
+            && offlineHandler.RequestCount == 0,
+            "persistent lyrics cache must survive service restart and avoid a network request");
     }
     finally
     {
@@ -543,6 +661,82 @@ void VerifyPrimarySecondaryPresentation()
         "a running task must remain visible beside terminal primary content");
 }
 
+void VerifyBatchMerge()
+{
+    using var scheduler = new CapsuleEventScheduler();
+    var presentationChanges = 0;
+    scheduler.PresentedEventsChanged += (_, _) => presentationChanges++;
+
+    var createdAt = DateTimeOffset.UtcNow;
+    var download = CreateEvent(
+        CapsuleEventKind.TaskProgress,
+        "download",
+        "下载") with
+    {
+        EventId = "probe:batch-download",
+        Title = "旧下载状态",
+        Progress = 0.1,
+        CreatedAt = createdAt.AddSeconds(-2)
+    };
+    var updatedDownload = download with
+    {
+        Title = "最新下载状态",
+        Progress = 0.65,
+        CreatedAt = createdAt
+    };
+    var timer = CreateEvent(
+        CapsuleEventKind.Timer,
+        "timer",
+        "计时器") with
+    {
+        EventId = "probe:batch-timer",
+        CreatedAt = createdAt.AddSeconds(-1)
+    };
+
+    scheduler.PublishBatch([download, timer, updatedDownload]);
+
+    Assert(
+        presentationChanges == 1,
+        "one batch must trigger at most one presentation update");
+    Assert(
+        scheduler.ActiveEvent?.EventId == updatedDownload.EventId
+        && scheduler.ActiveEvent.Title == "最新下载状态"
+        && scheduler.ActiveEvent.Progress == 0.65,
+        "the last same-ID event in a batch must replace earlier values");
+    Assert(
+        scheduler.SecondaryEvent?.EventId == timer.EventId,
+        "batch merging must keep a real secondary event");
+    Assert(
+        scheduler.Pin(timer.EventId)
+        && scheduler.ActiveEvent?.EventId == timer.EventId,
+        "a secondary event produced by a batch must remain pinnable");
+
+    var changesBeforeReplacement = presentationChanges;
+    var stopwatch = CreateEvent(
+        CapsuleEventKind.Stopwatch,
+        "stopwatch",
+        "秒表") with
+    {
+        EventId = "probe:batch-stopwatch",
+        CreatedAt = createdAt.AddSeconds(1)
+    };
+    scheduler.PublishBatch(
+        [stopwatch],
+        [timer.EventId, updatedDownload.EventId]);
+    Assert(
+        presentationChanges == changesBeforeReplacement + 1
+        && scheduler.ActiveEvent?.EventId == stopwatch.EventId
+        && scheduler.SecondaryEvent is null
+        && scheduler.PinnedEventId is null,
+        "batch removals and replacements must produce one coherent presentation");
+
+    var changesAfterReplacement = presentationChanges;
+    scheduler.PublishBatch([]);
+    Assert(
+        presentationChanges == changesAfterReplacement,
+        "an empty batch must not trigger a presentation update");
+}
+
 void Assert(bool condition, string message)
 {
     if (!condition)
@@ -675,4 +869,19 @@ static CapsuleEvent CreateEvent(
         EventPrivacyLevel.Full,
         DateTimeOffset.UtcNow,
         null);
+}
+
+internal sealed class ProbeHttpMessageHandler(
+    Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
+    : HttpMessageHandler
+{
+    internal int RequestCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        return Task.FromResult(responseFactory(request));
+    }
 }

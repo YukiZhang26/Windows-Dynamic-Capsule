@@ -1,8 +1,10 @@
 using DynamicCapsule.Models;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,6 +13,11 @@ namespace DynamicCapsule.Services;
 
 internal sealed class LyricsService : IDisposable
 {
+    private const int PersistentCacheVersion = 1;
+    private const int MaximumPersistentCacheEntries = 256;
+    private const long MaximumPersistentCacheBytes = 2 * 1024 * 1024;
+    private static readonly TimeSpan PersistentCacheLifetime =
+        TimeSpan.FromDays(30);
     private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(300);
     private static readonly Regex TimestampPattern = new(
         @"\[(?<minutes>\d{1,3}):(?<seconds>\d{2}(?:\.\d{1,3})?)\]",
@@ -29,12 +36,17 @@ internal sealed class LyricsService : IDisposable
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly string _persistentCacheDirectory;
 
     private DateTimeOffset _lastRequestAt = DateTimeOffset.MinValue;
     private DateTimeOffset _nextRequestNotBefore = DateTimeOffset.MinValue;
+    private LyricsFallbackProvider _fallbackProvider =
+        LyricsFallbackProvider.QqMusic;
     private bool _disposed;
 
-    internal LyricsService(HttpClient? httpClient = null)
+    internal LyricsService(
+        HttpClient? httpClient = null,
+        string? persistentCacheDirectory = null)
     {
         _ownsHttpClient = httpClient is null;
         _httpClient = httpClient ?? new HttpClient
@@ -47,6 +59,31 @@ internal sealed class LyricsService : IDisposable
         {
             _httpClient.DefaultRequestHeaders.UserAgent.Add(
                 new ProductInfoHeaderValue("WindowsDynamicCapsule", "0.1"));
+        }
+
+        _persistentCacheDirectory = persistentCacheDirectory
+                                    ?? Path.Combine(
+                                        Environment.GetFolderPath(
+                                            Environment.SpecialFolder.LocalApplicationData),
+                                        "WindowsDynamicCapsule",
+                                        "lyrics-cache");
+    }
+
+    internal void UpdateFallbackProvider(LyricsFallbackProvider provider)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var normalized = Enum.IsDefined(provider)
+            ? provider
+            : LyricsFallbackProvider.QqMusic;
+        lock (_cacheLock)
+        {
+            if (_fallbackProvider == normalized)
+            {
+                return;
+            }
+
+            _fallbackProvider = normalized;
+            _cache.Clear();
         }
     }
 
@@ -63,6 +100,19 @@ internal sealed class LyricsService : IDisposable
             {
                 return cached;
             }
+        }
+
+        var persisted = await TryLoadPersistentCacheAsync(
+            cacheKey,
+            cancellationToken);
+        if (persisted is not null)
+        {
+            lock (_cacheLock)
+            {
+                _cache[cacheKey] = persisted;
+            }
+
+            return persisted;
         }
 
         await _requestGate.WaitAsync(cancellationToken);
@@ -83,6 +133,11 @@ internal sealed class LyricsService : IDisposable
                 {
                     _cache[cacheKey] = result;
                 }
+
+                await TrySavePersistentCacheAsync(
+                    cacheKey,
+                    result,
+                    cancellationToken);
             }
 
             return result;
@@ -128,7 +183,8 @@ internal sealed class LyricsService : IDisposable
         CancellationToken cancellationToken)
     {
         QqMusicLookupResult? qqMusicResult = null;
-        if (IsQqMusicSnapshot(snapshot))
+        var isQqMusicSnapshot = IsQqMusicSnapshot(snapshot);
+        if (isQqMusicSnapshot)
         {
             qqMusicResult = await TryLookupQqMusicAsync(
                 snapshot,
@@ -146,9 +202,50 @@ internal sealed class LyricsService : IDisposable
             }
         }
 
-        var lrcLibResult = await LookupLrcLibAsync(
-            snapshot,
-            cancellationToken);
+        LyricsLookupResult lrcLibResult;
+        try
+        {
+            lrcLibResult = await LookupLrcLibAsync(
+                snapshot,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+            or TaskCanceledException
+            or JsonException)
+        {
+            lrcLibResult = LyricsLookupResult.Empty(
+                LyricsLookupStatus.Unavailable);
+        }
+
+        var fallbackProvider = _fallbackProvider;
+        if (!isQqMusicSnapshot
+            && fallbackProvider == LyricsFallbackProvider.QqMusic
+            && lrcLibResult.Status is LyricsLookupStatus.NotFound
+                or LyricsLookupStatus.UnsyncedOnly
+                or LyricsLookupStatus.Unavailable)
+        {
+            qqMusicResult = await TryLookupQqMusicAsync(
+                snapshot,
+                cancellationToken);
+            if (qqMusicResult is { Lines.Count: > 0 })
+            {
+                return new LyricsLookupResult(
+                    LyricsLookupStatus.Found,
+                    qqMusicResult.Lines,
+                    "QQ 音乐（备用）")
+                {
+                    Artwork = qqMusicResult.Artwork,
+                    Duration = qqMusicResult.Duration
+                };
+            }
+        }
+
         return qqMusicResult?.Artwork is null
             ? lrcLibResult
             : lrcLibResult with { Artwork = qqMusicResult.Artwork };
@@ -622,6 +719,207 @@ internal sealed class LyricsService : IDisposable
         return score;
     }
 
+    private async Task<LyricsLookupResult?> TryLoadPersistentCacheAsync(
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
+        var path = GetPersistentCachePath(cacheKey);
+        try
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists
+                || file.Length is <= 0 or > MaximumPersistentCacheBytes)
+            {
+                return null;
+            }
+
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                4096,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var entry = await JsonSerializer.DeserializeAsync<
+                PersistentLyricsCacheEntry>(
+                stream,
+                SerializerOptions,
+                cancellationToken);
+            if (!IsValidPersistentCacheEntry(entry, DateTimeOffset.UtcNow))
+            {
+                return null;
+            }
+
+            return new LyricsLookupResult(
+                entry!.Status,
+                entry.Lines
+                    .Select(line => new LyricLine(
+                        TimeSpan.FromMilliseconds(line.TimestampMilliseconds),
+                        line.Text))
+                    .ToArray(),
+                entry.Source)
+            {
+                Duration = TimeSpan.FromMilliseconds(
+                    entry.DurationMilliseconds)
+            };
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or JsonException
+            or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private async Task TrySavePersistentCacheAsync(
+        string cacheKey,
+        LyricsLookupResult result,
+        CancellationToken cancellationToken)
+    {
+        if (result.Status is not LyricsLookupStatus.Found
+            and not LyricsLookupStatus.Instrumental
+            || result.Lines.Count > 20_000)
+        {
+            return;
+        }
+
+        var path = GetPersistentCachePath(cacheKey);
+        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            Directory.CreateDirectory(_persistentCacheDirectory);
+            var entry = new PersistentLyricsCacheEntry(
+                PersistentCacheVersion,
+                DateTimeOffset.UtcNow,
+                result.Status,
+                string.IsNullOrWhiteSpace(result.Source)
+                    ? "本地缓存"
+                    : result.Source[..Math.Min(result.Source.Length, 80)],
+                Math.Clamp(
+                    result.Duration.TotalMilliseconds,
+                    0,
+                    TimeSpan.FromHours(24).TotalMilliseconds),
+                result.Lines
+                    .Where(line => line.Timestamp >= TimeSpan.Zero
+                                   && line.Timestamp <= TimeSpan.FromHours(24)
+                                   && !string.IsNullOrWhiteSpace(line.Text))
+                    .Select(line => new PersistentLyricLine(
+                        line.Timestamp.TotalMilliseconds,
+                        line.Text[..Math.Min(line.Text.Length, 500)]))
+                    .ToArray());
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(
+                entry,
+                SerializerOptions);
+            if (bytes.Length > MaximumPersistentCacheBytes)
+            {
+                return;
+            }
+
+            await File.WriteAllBytesAsync(
+                temporaryPath,
+                bytes,
+                cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
+            PrunePersistentCache();
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException)
+        {
+            // Lyrics are still usable in memory when the cache is unavailable.
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                // A uniquely named temporary cache file is harmless.
+            }
+        }
+    }
+
+    private string GetPersistentCachePath(string cacheKey)
+    {
+        var hash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(cacheKey)))
+            .ToLowerInvariant();
+        return Path.Combine(_persistentCacheDirectory, $"{hash}.json");
+    }
+
+    private void PrunePersistentCache()
+    {
+        try
+        {
+            foreach (var file in new DirectoryInfo(_persistentCacheDirectory)
+                         .EnumerateFiles("*.json", SearchOption.TopDirectoryOnly)
+                         .OrderByDescending(file => file.LastWriteTimeUtc)
+                         .Skip(MaximumPersistentCacheEntries))
+            {
+                file.Delete();
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or DirectoryNotFoundException)
+        {
+            // Cache pruning must never interrupt playback presentation.
+        }
+    }
+
+    private static bool IsValidPersistentCacheEntry(
+        PersistentLyricsCacheEntry? entry,
+        DateTimeOffset now)
+    {
+        if (entry is null
+            || entry.Version != PersistentCacheVersion
+            || entry.CachedAt > now.AddDays(1)
+            || now - entry.CachedAt > PersistentCacheLifetime
+            || entry.Status is not LyricsLookupStatus.Found
+                and not LyricsLookupStatus.Instrumental
+            || string.IsNullOrWhiteSpace(entry.Source)
+            || entry.Source.Length > 80
+            || !double.IsFinite(entry.DurationMilliseconds)
+            || entry.DurationMilliseconds is < 0 or > 86_400_000
+            || entry.Lines is null
+            || entry.Lines.Count > 20_000)
+        {
+            return false;
+        }
+
+        if (entry.Status == LyricsLookupStatus.Found
+            && entry.Lines.Count == 0)
+        {
+            return false;
+        }
+
+        return entry.Lines.All(line =>
+            double.IsFinite(line.TimestampMilliseconds)
+            && line.TimestampMilliseconds is >= 0 and <= 86_400_000
+            && !string.IsNullOrWhiteSpace(line.Text)
+            && line.Text.Length <= 500);
+    }
+
     private static string BuildCacheKey(MediaSnapshot snapshot)
     {
         return string.Join(
@@ -683,6 +981,18 @@ internal sealed class LyricsService : IDisposable
         IReadOnlyList<LyricLine> Lines,
         byte[]? Artwork,
         TimeSpan Duration);
+
+    private sealed record PersistentLyricsCacheEntry(
+        int Version,
+        DateTimeOffset CachedAt,
+        LyricsLookupStatus Status,
+        string Source,
+        double DurationMilliseconds,
+        IReadOnlyList<PersistentLyricLine> Lines);
+
+    private sealed record PersistentLyricLine(
+        double TimestampMilliseconds,
+        string Text);
 
     private sealed record QqMusicSearchResponse(
         QqMusicSearchData? Data);

@@ -185,6 +185,24 @@
                    FontSize="12"
                    FontWeight="SemiBold"
                    Foreground="{DynamicResource SecondaryTextBrush}"
+                   Target="{Binding ElementName=LyricsFallbackProviderCombo}"
+                   Content="备用歌词来源(_Y)" />
+            <ComboBox x:Name="LyricsFallbackProviderCombo"
+                      Height="34"
+                      Margin="0,8,0,0"
+                      Padding="8,0"
+                      TabIndex="8"
+                      AutomationProperties.Name="备用歌词来源"
+                      SelectedIndex="1"
+                      ToolTip="LRCLIB 没有同步歌词时，可尝试从备用来源匹配；已经缓存的歌词仍可离线使用。">
+                <ComboBoxItem Content="不使用备用来源" />
+                <ComboBoxItem Content="QQ 音乐" />
+            </ComboBox>
+            <Label Margin="0,22,0,0"
+                   Padding="0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
                    Target="{Binding ElementName=PrivacyLevelCombo}"
                    Content="事件隐私级别(_P)" />
             <ComboBox x:Name="PrivacyLevelCombo"

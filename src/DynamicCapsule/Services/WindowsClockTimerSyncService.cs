@@ -35,8 +35,8 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
             Timeout.InfiniteTimeSpan);
     }
 
-    internal event Action<CapsuleEvent>? EventChanged;
-    internal event Action<string>? EventRemoved;
+    internal event Action<IReadOnlyList<CapsuleEvent>, IReadOnlyList<string>>?
+        EventsChanged;
     internal event Action<string>? StatusChanged;
 
     internal string Status
@@ -791,14 +791,9 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
             }
         }
 
-        foreach (var eventId in removedIds)
+        if (changedEvents.Count > 0 || removedIds.Count > 0)
         {
-            EventRemoved?.Invoke(eventId);
-        }
-
-        foreach (var capsuleEvent in changedEvents)
-        {
-            EventChanged?.Invoke(capsuleEvent);
+            EventsChanged?.Invoke(changedEvents, removedIds);
         }
 
         if (changedStatus is not null)
