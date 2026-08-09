@@ -83,8 +83,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ### 运行 Windows App Certification Kit
 
-安装当前稳定版 Windows SDK（包含 Windows App Certification Kit）后，在
-活动用户会话中打开管理员 PowerShell，然后执行：
+先下载并验证当前稳定版 Windows SDK 引导程序；此命令不会安装组件：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\prepare-wack.ps1
+```
+
+当前固定版本为 `10.0.28000.2526`。脚本会校验 SHA-256、产品版本和 Microsoft
+Authenticode 签名。确认输出正常并准备进行交互式安装后，再显式执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\prepare-wack.ps1 `
+  -LaunchInstaller
+```
+
+在 Windows SDK Setup 中只选择 **Windows App Certification Kit**，除非确实
+需要其他 SDK 组件。脚本不会静默安装，也不会绕过 UAC。安装完成后，在活动
+用户会话中打开管理员 PowerShell，然后执行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `

@@ -24,6 +24,7 @@ $verifyScript = Read-Source "scripts\verify-msix.ps1"
 $directReleaseVerifyScript = Read-Source (
     "scripts\verify-direct-release-msix.ps1")
 $storeBuildScript = Read-Source "scripts\build-store-msix.ps1"
+$prepareWackScript = Read-Source "scripts\prepare-wack.ps1"
 $wackScript = Read-Source "scripts\run-wack.ps1"
 $storeConfigTemplate = Read-Source (
     "packaging\store-submission.template.json")
@@ -169,6 +170,17 @@ $checks = @(
                     $signPathArtifactConfiguration,
                     '<authenticode-sign\s*/>')
             ).Count -eq 3
+    },
+    [PSCustomObject]@{
+        Name = "WACK preparation pins and verifies the Microsoft installer"
+        Passed =
+            $prepareWackScript.Contains("10.0.28000.2526") -and
+            $prepareWackScript.Contains(
+                "02988EA51EAB2A2DB53E19735E51C97A6D221ADA74B9174FA0868870B9403BA0") -and
+            $prepareWackScript.Contains("Get-AuthenticodeSignature") -and
+            $prepareWackScript.Contains("Microsoft Corporation") -and
+            $prepareWackScript.Contains("LaunchInstaller") -and
+            -not $prepareWackScript.Contains("/quiet")
     },
     [PSCustomObject]@{
         Name = "WACK runner validates the installed Store identity"
