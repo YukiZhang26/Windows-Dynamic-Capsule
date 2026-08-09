@@ -2,6 +2,7 @@ using DynamicCapsule.Models;
 using DynamicCapsule.Services;
 using System.IO;
 using System.Runtime.InteropServices;
+using Windows.ApplicationModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -646,6 +647,7 @@ public partial class CapsuleWindow : Window
         return new DiagnosticsSnapshot(
             $"PID {Environment.ProcessId} · "
             + (isPrimaryInstance ? "主实例" : "辅助实例"),
+            GetPackageDiagnosticSummary(),
             _mediaStatus,
             _notificationStatus,
             _localTaskStatus,
@@ -654,6 +656,35 @@ public partial class CapsuleWindow : Window
             $"{settingsPath} · Schema {_settings.SchemaVersion}",
             startupStatus.Message,
             _accessibilityPreferences.Summary);
+    }
+
+    private static string GetPackageDiagnosticSummary()
+    {
+        try
+        {
+            var package = Package.Current;
+            var identity = package.Id;
+            var version = identity.Version;
+            return $"MSIX · {identity.Name} · "
+                   + $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision} · "
+                   + $"{identity.Architecture.ToString().ToLowerInvariant()} · "
+                   + $"签名：{package.SignatureKind}";
+        }
+        catch (InvalidOperationException)
+        {
+            return GetUnpackagedDiagnosticSummary();
+        }
+        catch (COMException)
+        {
+            return GetUnpackagedDiagnosticSummary();
+        }
+    }
+
+    private static string GetUnpackagedDiagnosticSummary()
+    {
+        var version = typeof(CapsuleWindow).Assembly.GetName().Version;
+        return $"未打包运行 · 程序集 {version?.ToString() ?? "未知"} · "
+               + "通知读取与 MSIX 登录启动不可用";
     }
 
     private void ApplyVisibilitySuppression()

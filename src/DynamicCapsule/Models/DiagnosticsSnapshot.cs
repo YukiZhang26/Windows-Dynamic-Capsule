@@ -2,6 +2,7 @@ namespace DynamicCapsule.Models;
 
 internal sealed record DiagnosticsSnapshot(
     string Process,
+    string Package,
     string Media,
     string Notifications,
     string TaskPipe,
