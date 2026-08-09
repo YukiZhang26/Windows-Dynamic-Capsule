@@ -239,6 +239,7 @@ $checks = @(
             $clockTimerCode.Contains("StopwatchNavigationViewItem") -and
             $clockTimerCode.Contains("SelectionItemPattern") -and
             $clockTimerCode.Contains("windows-clock:stopwatch") -and
+            $clockTimerCode.Contains("BuildStatus(") -and
             $clockTimerCode.Contains("request.Attempts >= 6")
     },
     [PSCustomObject]@{

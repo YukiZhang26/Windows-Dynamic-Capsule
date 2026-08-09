@@ -24,7 +24,11 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
     private int _pollInProgress;
     private bool _started;
     private bool _disposed;
-    private string _status = "等待 Windows 时钟计时器";
+    private string _status = BuildStatus(
+        timerPageAvailable: false,
+        timerCount: 0,
+        stopwatchPageAvailable: false,
+        stopwatchCount: 0);
 
     internal WindowsClockTimerSyncService()
     {
@@ -769,17 +773,11 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
                 }
             }
 
-            var nextStatus = observation.TimerPageAvailable
-                ? _timers.Count == 0
-                    ? "已连接 Windows 时钟 · 暂无运行中的计时器"
-                    : $"已连接 Windows 时钟 · 同步 {_timers.Count} 个计时器"
-                : _timers.Count == 0
-                    ? "等待 Windows 时钟计时器（打开“时钟 > 计时器”后同步）"
-                    : $"Windows 时钟不可见 · 本地镜像 {_timers.Count} 个计时器";
-            if (_stopwatches.Count > 0)
-            {
-                nextStatus += " · 秒表已同步";
-            }
+            var nextStatus = BuildStatus(
+                observation.TimerPageAvailable,
+                _timers.Count,
+                observation.StopwatchPageAvailable,
+                _stopwatches.Count);
 
             if (!string.Equals(
                     _status,
@@ -800,6 +798,57 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         {
             StatusChanged?.Invoke(changedStatus);
         }
+    }
+
+    internal static string BuildStatus(
+        bool timerPageAvailable,
+        int timerCount,
+        bool stopwatchPageAvailable,
+        int stopwatchCount)
+    {
+        timerCount = Math.Max(0, timerCount);
+        stopwatchCount = Math.Max(0, stopwatchCount);
+        if (!timerPageAvailable && !stopwatchPageAvailable)
+        {
+            if (timerCount == 0 && stopwatchCount == 0)
+            {
+                return "等待 Windows 时钟（打开“时钟 > 计时器或秒表”后同步）";
+            }
+
+            var mirroredActivities = new List<string>(2);
+            if (timerCount > 0)
+            {
+                mirroredActivities.Add($"{timerCount} 个计时器");
+            }
+
+            if (stopwatchCount > 0)
+            {
+                mirroredActivities.Add("秒表");
+            }
+
+            return "Windows 时钟不可见 · 本地镜像 "
+                   + string.Join("、", mirroredActivities);
+        }
+
+        var synchronizedActivities = new List<string>(2);
+        if (timerCount > 0)
+        {
+            synchronizedActivities.Add(timerPageAvailable
+                ? $"同步 {timerCount} 个计时器"
+                : $"本地镜像 {timerCount} 个计时器");
+        }
+
+        if (stopwatchCount > 0)
+        {
+            synchronizedActivities.Add(stopwatchPageAvailable
+                ? "同步秒表"
+                : "本地镜像秒表");
+        }
+
+        return synchronizedActivities.Count == 0
+            ? "已连接 Windows 时钟 · 暂无运行中的计时器或秒表"
+            : "已连接 Windows 时钟 · "
+              + string.Join(" · ", synchronizedActivities);
     }
 
     private AutomationElement? GetClockRoot()

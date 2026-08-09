@@ -157,6 +157,7 @@ VerifyBatchMerge();
 VerifySettingsFallback();
 await VerifyPersistentLyricsCacheAsync();
 VerifyWindowsClockTimerParsing();
+VerifyWindowsClockStatusText();
 VerifyQqMusicSeekCommands();
 VerifyBrowserDownloadProgress();
 
@@ -172,7 +173,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine(
-    "Core probe passed: source rules, privacy, batch scheduling, settings, persistent lyrics cache, and Windows Clock timer parsing.");
+    "Core probe passed: source rules, privacy, batch scheduling, settings, persistent lyrics cache, and Windows Clock parsing/status.");
 return 0;
 
 int ProbeCapsuleQuickMenu()
@@ -365,6 +366,50 @@ void VerifyWindowsClockTimerParsing()
         && WindowsClockTimerParser.CreateEventId("3 分钟", 0)
         != WindowsClockTimerParser.CreateEventId("3 分钟", 1),
         "Windows Clock event IDs must be stable and distinguish duplicate cards");
+}
+
+void VerifyWindowsClockStatusText()
+{
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "等待 Windows 时钟（打开“时钟 > 计时器或秒表”后同步）",
+        "Windows Clock idle status must mention both timers and stopwatches");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            timerPageAvailable: false,
+            timerCount: 1,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "Windows 时钟不可见 · 本地镜像 1 个计时器、秒表",
+        "Windows Clock hidden status must describe every mirrored activity");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            timerPageAvailable: true,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "已连接 Windows 时钟 · 暂无运行中的计时器或秒表",
+        "an open Clock page without activity must report a connected idle state");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: true,
+            stopwatchCount: 1)
+        == "已连接 Windows 时钟 · 同步秒表",
+        "Windows Clock stopwatch-only status must report synchronized stopwatch");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            timerPageAvailable: true,
+            timerCount: 2,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "已连接 Windows 时钟 · 同步 2 个计时器 · 本地镜像秒表",
+        "Windows Clock mixed status must distinguish synchronized and mirrored activity");
 }
 
 void VerifySettingsFallback()
