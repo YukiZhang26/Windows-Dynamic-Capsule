@@ -130,6 +130,22 @@ $checks = @(
             $commonScript.Contains("1.3.6.1.5.5.7.3.3")
     },
     [PSCustomObject]@{
+        Name = "Development signing still verifies signer, type, and timestamp"
+        Passed =
+            $buildScript.Contains("Assert-CodeSignature") -and
+            $buildScript.Contains("ExpectedThumbprint") -and
+            $buildScript.Contains('SignatureType -ne "Authenticode"') -and
+            $buildScript.Contains("TimeStamperCertificate") -and
+            $buildScript.Contains(
+                '$signature.Status -eq "UnknownError"') -and
+            $buildScript.Contains("X509ChainStatusFlags]::UntrustedRoot") -and
+            $buildScript.Contains('$chainStatuses.Count -eq 1') -and
+            $buildScript.Contains(
+                "AllowUntrustedDevelopmentCertificate") -and
+            $buildScript.Contains(
+                'if (-not $AllowUntrustedDevelopmentCertificate)')
+    },
+    [PSCustomObject]@{
         Name = "MSIX verification checks block map and signature"
         Passed =
             $verifyScript.Contains("appxblockmap.xml") -and

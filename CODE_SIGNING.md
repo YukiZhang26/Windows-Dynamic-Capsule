@@ -36,6 +36,15 @@ No direct-download binary will be published until all of the following are true:
 Self-signed development certificates, locally trusted certificates, unsigned
 MSIX files, and Partner Center upload candidates are not public release assets.
 
+For local upgrade testing only, `build-msix.ps1` accepts
+`-AllowUntrustedDevelopmentCertificate`. This does not disable signature
+verification: the application binaries and MSIX must still use Authenticode,
+match the requested certificate thumbprint, and contain the required RFC 3161
+timestamp. The only tolerated verification failure is a certificate chain with
+exactly one `UntrustedRoot` status. Hash mismatches, missing signatures, wrong
+signers, expired certificates, additional chain errors, and missing timestamps
+remain fatal. `verify-direct-release-msix.ps1` never enables this exception.
+
 ## Provider status
 
 Microsoft Store signing is the active production path. For a future trusted

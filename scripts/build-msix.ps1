@@ -178,6 +178,74 @@ function Invoke-CodeSign {
     }
 }
 
+function Assert-CodeSignature {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedThumbprint,
+
+        [switch] $AllowUntrusted,
+
+        [switch] $RequireTimestamp
+    )
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $FilePath
+    if ($null -eq $signature.SignerCertificate) {
+        throw "Signed file does not expose a signer certificate: $FilePath"
+    }
+
+    if (-not [string]::Equals(
+            $signature.SignerCertificate.Thumbprint,
+            $ExpectedThumbprint,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Signed file does not match the requested certificate: $FilePath"
+    }
+
+    if ($signature.SignatureType -ne "Authenticode") {
+        throw (
+            "Signed file does not contain an Authenticode signature: " +
+            $FilePath)
+    }
+
+    if ($RequireTimestamp -and
+        $null -eq $signature.TimeStamperCertificate) {
+        throw "Signed file does not contain the required timestamp: $FilePath"
+    }
+
+    if ($signature.Status -eq "Valid") {
+        return
+    }
+
+    $chain = New-Object Security.Cryptography.X509Certificates.X509Chain
+    try {
+        $chain.ChainPolicy.RevocationMode =
+            [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        $chainBuilt = $chain.Build($signature.SignerCertificate)
+        $chainStatuses = @($chain.ChainStatus | ForEach-Object { $_.Status })
+    }
+    finally {
+        $chain.Dispose()
+    }
+
+    $untrustedRoot =
+        [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::UntrustedRoot
+    $isUntrustedRootOnly =
+        (-not $chainBuilt) -and
+        $chainStatuses.Count -eq 1 -and
+        $chainStatuses[0] -eq $untrustedRoot
+    $isExpectedDevelopmentTrustFailure =
+        $AllowUntrusted -and
+        $signature.Status -eq "UnknownError" -and
+        $isUntrustedRootOnly
+    if (-not $isExpectedDevelopmentTrustFailure) {
+        throw (
+            "Signed file did not verify: $FilePath " +
+            "($($signature.Status))")
+    }
+}
+
 $repositoryRoot = Get-RepositoryRoot
 $dotnetPath = Get-RepositoryDotnet -RepositoryRoot $repositoryRoot
 $projectPath = Join-Path $repositoryRoot (
@@ -408,13 +476,11 @@ if ($null -ne $certificate) {
 
     foreach ($applicationFileName in $applicationFileNames) {
         $applicationFile = Join-Path $layoutDirectory $applicationFileName
-        $applicationSignature = Get-AuthenticodeSignature `
-            -LiteralPath $applicationFile
-        if ($applicationSignature.Status -ne "Valid") {
-            throw (
-                "Signed application file did not verify: " +
-                "$applicationFileName ($($applicationSignature.Status))")
-        }
+        Assert-CodeSignature `
+            -FilePath $applicationFile `
+            -ExpectedThumbprint $certificate.Thumbprint `
+            -AllowUntrusted:$AllowUntrustedDevelopmentCertificate `
+            -RequireTimestamp:(-not $SkipTimestamp)
     }
 }
 
@@ -488,10 +554,18 @@ foreach ($requiredPath in @(
 }
 
 if ($null -ne $certificate) {
-    & $signToolPath verify /pa /all /v $packagePath
-    if ($LASTEXITCODE -ne 0) {
-        throw "The generated package signature could not be verified."
+    if (-not $AllowUntrustedDevelopmentCertificate) {
+        & $signToolPath verify /pa /all /v $packagePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "The generated package signature could not be verified."
+        }
     }
+
+    Assert-CodeSignature `
+        -FilePath $packagePath `
+        -ExpectedThumbprint $certificate.Thumbprint `
+        -AllowUntrusted:$AllowUntrustedDevelopmentCertificate `
+        -RequireTimestamp:(-not $SkipTimestamp)
 }
 
 $packageHash = Get-FileHash -LiteralPath $packagePath -Algorithm SHA256
