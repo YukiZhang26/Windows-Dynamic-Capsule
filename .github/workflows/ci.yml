@@ -1,0 +1,71 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build and verify
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore .\DynamicCapsule.slnx --configfile .\NuGet.Config
+
+      - name: Build Release with warnings as errors
+        run: >-
+          dotnet build .\DynamicCapsule.slnx
+          --configuration Release
+          --no-restore
+          --property:TreatWarningsAsErrors=true
+
+      - name: Run CoreProbe
+        run: >-
+          dotnet run
+          --project .\tests\DynamicCapsule.CoreProbe\DynamicCapsule.CoreProbe.csproj
+          --configuration Release
+          --no-build
+
+      - name: Run repository verification scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scripts = @(
+            'verify-accessibility.ps1'
+            'verify-event-policy.ps1'
+            'verify-interaction-presentation.ps1'
+            'verify-notification-capability.ps1'
+            'verify-packaging-pipeline.ps1'
+            'verify-settings.ps1'
+            'verify-startup-lifecycle.ps1'
+            'verify-timer-pinning.ps1'
+          )
+
+          foreach ($script in $scripts) {
+            Write-Host "::group::$script"
+            & (Join-Path $PWD "scripts\$script")
+            if (-not $?) {
+              throw "$script failed."
+            }
+            Write-Host '::endgroup::'
+          }

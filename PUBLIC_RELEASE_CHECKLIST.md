@@ -9,17 +9,24 @@
 - [x] 从公开 Store 提交文档移除正式 Store ID、Publisher ID 和包哈希。
 - [x] 隐私政策不再包含未替换的邮箱占位符。
 
-## 创建公开仓库时
+## 公开仓库与安全设置
 
-- [ ] 启用私密漏洞报告和依赖安全提醒。
-- [ ] 不要使用强制添加方式提交被 `.gitignore` 排除的文件。
-- [ ] 首次提交前检查待提交文件中没有 `.pfx`、`.p12`、`.key`、`.pem`、
-      `.msix`、真实通知、账号截图或 Partner Center 私人页面截图。
+- [x] 仓库已公开：<https://github.com/YukiZhang26/Windows-Dynamic-Capsule>。
+- [x] 已启用私密漏洞报告、Dependabot 安全更新、Secret Scanning 和
+      Push Protection。
+- [x] 已添加 Windows CI，并为 NuGet 依赖启用每周 Dependabot 检查。
+- [x] 未使用强制添加方式提交被 `.gitignore` 排除的文件。
+- [x] 已检查跟踪文件，其中没有 `.pfx`、`.p12`、`.key`、`.pem`、
+      `.msix`、本机设置路径、GitHub 令牌或 Partner Center 私人截图。
 - [ ] 仓库截图只使用自制或明确获准使用的图片、歌曲和歌词示例。
-- [ ] 在仓库主页填写实际项目 URL；正式 Store 发布前将隐私政策部署到
+- [ ] 正式 Store 发布前将隐私政策部署到
       无需登录即可访问的 HTTPS 地址。
 - [ ] 对公开 Release 的二进制进行可信代码签名；不要把本地开发证书当作
       面向用户的正式签名。
+
+> 2026-08-09 本地候选包 `0.1.0.57` 已完成测试证书签名、时间戳、安装、
+> 升级和卸载重装验证。该测试证书只用于本机验收，不作为公开 Release 的
+> 可信签名。
 
 ## 每次发布前
 
@@ -28,3 +35,12 @@
 - [ ] MSIX 版本号高于上次提交版本。
 - [ ] `runFullTrust`、通知、网络访问和隐私说明与实际代码一致。
 - [ ] 发布包和源码中没有调试日志、个人路径或私有配置。
+
+以下项目不能由 CI 替代，仍需在发布候选包上人工验证：
+
+- Windows 通知授权关闭与恢复。
+- Windows 时钟计时器/秒表的实际同步与控制。
+- 多显示器、不同 DPI、热插拔以及全屏切换。
+- `verify-window.ps1` 的真实桌面窗口与截图验证。
+- `verify-msix.ps1 -RequireSignature`、Windows App Certification Kit 和
+  Partner Center 认证。
