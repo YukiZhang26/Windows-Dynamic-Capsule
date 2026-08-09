@@ -17,11 +17,14 @@ The app may process the following information on the device:
 - the source, title, and body of Windows toast notifications after the user
   grants permission;
 - task names, states, and progress sent by the user to the local named pipe;
+- the display name and connection state of paired Bluetooth devices, and the
+  current Wi-Fi profile name or SSID, to show brief connection, disconnection,
+  and network-switch events;
 - timer state, display selection, privacy level, notification filters, and
   other app settings.
 
-Notification and task content is used only for temporary display and is not
-written to the settings file. Synchronized lyrics may be cached in
+Notification, task, and connectivity content is used only for temporary
+display and is not written to the settings file. Synchronized lyrics may be cached in
 `%LOCALAPPDATA%\WindowsDynamicCapsule\lyrics-cache`. Cache file names are
 derived from hashes of song information and do not contain song titles
 directly. Artwork is not written to this cache. App settings are stored in
@@ -33,6 +36,8 @@ To find synchronized lyrics, the app may send the current song title, artist,
 album name, and duration over HTTPS to `https://lrclib.net`. Windows
 notification content, local task content, and app settings are not sent to
 LRCLIB. LRCLIB processes requests under its own privacy policy and terms.
+Bluetooth device names, Wi-Fi names, and SSIDs are not sent to lyrics services
+or other third parties.
 
 If the user enables the optional QQ Music fallback, the app may send the song
 title, artist, and required resource identifiers to `c.y.qq.com` and
@@ -43,8 +48,9 @@ already cached locally remain available offline.
 ## Data the app does not collect
 
 The app contains no advertising or behavioral telemetry. It does not create
-user profiles, sell or rent personal data, upload notification content, or
-collect passwords, access tokens, clipboard contents, or precise location.
+user profiles, sell or rent personal data, upload notification, task,
+Bluetooth-device, or Wi-Fi content, or collect passwords, access tokens,
+clipboard contents, or precise location.
 
 ## User controls
 
@@ -60,7 +66,8 @@ Users can:
 
 ## Retention and security
 
-The app does not maintain a database of notification or task content.
+The app does not maintain a database of notification, task, or connectivity
+content.
 Synchronized lyrics are cached for 30 days, with a maximum of 256 songs; the
 oldest entries are removed first when the limit is exceeded. Settings and
 cache files remain in the current user's local app-data directory. The app

@@ -56,7 +56,7 @@ jobs:
             'verify-interaction-presentation.ps1'
             'verify-notification-capability.ps1'
             'verify-packaging-pipeline.ps1'
-            'verify-settings.ps1'
+            'verify-release-readiness.ps1'
             'verify-startup-lifecycle.ps1'
             'verify-timer-pinning.ps1'
           )
@@ -69,3 +69,13 @@ jobs:
             }
             Write-Host '::endgroup::'
           }
+
+          Write-Host '::group::verify-settings.ps1'
+          & .\scripts\verify-settings.ps1 -ExpectedOutcome Defaults
+          & .\scripts\verify-settings.ps1 `
+            -Path .\tests\fixtures\settings\valid.json `
+            -ExpectedOutcome Valid
+          & .\scripts\verify-settings.ps1 `
+            -Path .\tests\fixtures\settings\corrupt.json `
+            -ExpectedOutcome Defaults
+          Write-Host '::endgroup::'

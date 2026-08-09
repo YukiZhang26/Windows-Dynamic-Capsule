@@ -19,6 +19,8 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
   and a 30-day local cache;
 - User-authorized Windows notification summaries with an independent Do Not
   Disturb mode;
+- Brief local events for paired Bluetooth-device connections and Wi-Fi
+  profile changes;
 - Local tasks, browser downloads, countdown timers, stopwatches, and Windows
   Clock status;
 - Primary and secondary multi-task regions, multi-monitor support, high-DPI
@@ -73,8 +75,8 @@ must use their own app name, package identity, publisher, and signing material.
 
 ## Privacy and security
 
-See [PRIVACY.en.md](PRIVACY.en.md) for how notifications, local tasks, and settings
-are handled. Report security issues privately by following
+See [PRIVACY.en.md](PRIVACY.en.md) for how notifications, connectivity events,
+local tasks, and settings are handled. Report security issues privately by following
 [SECURITY.md](SECURITY.md). Public screenshots and sample data must not contain
 private notifications, access tokens, or unauthorized lyrics, album artwork,
 or wallpapers.
