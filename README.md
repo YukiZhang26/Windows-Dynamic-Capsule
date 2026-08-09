@@ -33,6 +33,19 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
 - .NET SDK `10.0.302`;
 - PowerShell 5.1 or later.
 
+## Install and remove
+
+The current public preview is portable: download the ZIP from GitHub Releases,
+extract the complete folder, and run `WindowsDynamicCapsule.exe`. To remove it,
+choose **Exit completely** from the capsule menu and delete the extracted
+folder. Settings and the optional lyrics cache can be removed by deleting
+`%LOCALAPPDATA%\WindowsDynamicCapsule`.
+
+When the signed Microsoft Store/MSIX edition becomes available, install it only
+from the Store or a verified release link. Remove that edition through
+**Windows Settings > Apps > Installed apps > Windows Dynamic Capsule >
+Uninstall**. Never disable Windows security or install an unknown certificate.
+
 ## Build locally
 
 ```powershell

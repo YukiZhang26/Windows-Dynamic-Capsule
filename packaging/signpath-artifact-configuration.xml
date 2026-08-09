@@ -1,13 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <artifact-configuration
   xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="productVersion" required="true" />
+    <parameter name="msixVersion" required="true" />
+  </parameters>
   <zip-file>
     <msix-file
-      path="WindowsDynamicCapsule_${version}_x64.unsigned.msix">
-      <pe-file path="WindowsDynamicCapsule.exe">
+      path="WindowsDynamicCapsule_${msixVersion}_x64.unsigned.msix">
+      <pe-file
+        path="WindowsDynamicCapsule.exe"
+        product-name="Windows Dynamic Capsule"
+        product-version="${productVersion}"
+        file-version="${msixVersion}"
+        company-name="Yuki Zhang">
         <authenticode-sign />
       </pe-file>
-      <pe-file path="WindowsDynamicCapsule.dll">
+      <pe-file
+        path="WindowsDynamicCapsule.dll"
+        product-name="Windows Dynamic Capsule"
+        product-version="${productVersion}"
+        file-version="${msixVersion}"
+        company-name="Yuki Zhang">
         <authenticode-sign />
       </pe-file>
       <authenticode-sign />

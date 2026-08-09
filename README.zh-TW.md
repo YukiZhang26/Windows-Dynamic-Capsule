@@ -25,6 +25,18 @@ Windows Dynamic Capsule 是一個面向 Windows 10/11 的開源桌面狀態膠�
 - .NET SDK `10.0.302`；
 - PowerShell 5.1 或更新版本。
 
+## 安裝與解除安裝
+
+目前公開預覽版為可攜版：從 GitHub Releases 下載 ZIP，完整解壓縮後執行
+`WindowsDynamicCapsule.exe`。移除時先在膠囊選單中選擇「徹底退出」，再刪除
+解壓縮目錄；如需一併清除設定及選用歌詞快取，可刪除
+`%LOCALAPPDATA%\WindowsDynamicCapsule`。
+
+後續可信簽署的 Microsoft Store/MSIX 版本只能從 Store 或經過驗證的 Release
+連結安裝，並透過「Windows 設定 > 應用程式 > 已安裝的應用程式 > Windows
+Dynamic Capsule > 解除安裝」移除。請勿關閉 Windows 安全性功能或安裝來源
+不明的憑證。
+
 ## 本機建置
 
 ```powershell

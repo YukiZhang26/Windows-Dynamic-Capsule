@@ -62,6 +62,18 @@ accepted before its service or certificate may be claimed. If accepted, this
 document and the release page will be updated with SignPath's required
 attribution and the final team-role configuration.
 
+The application evidence, proposed configuration, and values that must be
+provided only after acceptance are recorded in
+[`SIGNPATH_APPLICATION.md`](SIGNPATH_APPLICATION.md). The checked-in signing
+workflow is manual-only and cannot run until those repository variables and
+the SignPath API-token secret are configured.
+
+Planned attribution after acceptance: **Free code signing provided by
+[SignPath.io](https://signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).** This is a future attribution,
+not a claim that Windows Dynamic Capsule is currently accepted or signed by
+SignPath Foundation.
+
 The proposed deep-signing definition is kept in
 [`packaging/signpath-artifact-configuration.xml`](packaging/signpath-artifact-configuration.xml).
 It signs only the project's EXE, the project's DLL, and the enclosing MSIX.

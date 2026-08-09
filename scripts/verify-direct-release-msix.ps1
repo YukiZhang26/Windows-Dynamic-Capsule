@@ -72,6 +72,65 @@ function Get-TrustedChainRoot {
     return $rootSubject
 }
 
+function Assert-InnerProjectBinary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string] $DisplayName,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedPublisher,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedProductVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedFileVersion
+    )
+
+    $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($FilePath)
+    if ($versionInfo.ProductName -cne "Windows Dynamic Capsule" -or
+        $versionInfo.ProductVersion -cne $ExpectedProductVersion -or
+        $versionInfo.FileVersion -cne $ExpectedFileVersion -or
+        $versionInfo.CompanyName -cne "Yuki Zhang") {
+        throw (
+            "$DisplayName metadata does not match the release contract. " +
+            "ProductName='$($versionInfo.ProductName)', " +
+            "ProductVersion='$($versionInfo.ProductVersion)', " +
+            "FileVersion='$($versionInfo.FileVersion)', " +
+            "CompanyName='$($versionInfo.CompanyName)'.")
+    }
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $FilePath
+    if ($signature.Status -ne "Valid" -or
+        $null -eq $signature.SignerCertificate) {
+        throw "$DisplayName inside the MSIX is not signed by a trusted certificate."
+    }
+
+    if ($signature.SignerCertificate.Subject -cne $ExpectedPublisher) {
+        throw (
+            "$DisplayName signer does not match the direct-release " +
+            "Publisher. Expected '$ExpectedPublisher', got " +
+            "'$($signature.SignerCertificate.Subject)'.")
+    }
+
+    if ($null -eq $signature.TimeStamperCertificate) {
+        throw "$DisplayName inside the MSIX must have a trusted timestamp."
+    }
+
+    $timestampChainRoot = Get-TrustedChainRoot `
+        -Certificate $signature.TimeStamperCertificate `
+        -Label "$DisplayName timestamp"
+
+    return [PSCustomObject]@{
+        DisplayName = $DisplayName
+        SignerSubject = $signature.SignerCertificate.Subject
+        TimestampChainRoot = $timestampChainRoot
+    }
+}
+
 $resolvedPackagePath = [IO.Path]::GetFullPath($PackagePath)
 if (-not (Test-Path -LiteralPath $resolvedPackagePath -PathType Leaf)) {
     throw "MSIX package was not found: $resolvedPackagePath"
@@ -162,60 +221,60 @@ $timestampChainRoot = Get-TrustedChainRoot `
     -Label "Timestamp"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$temporaryExecutable = Join-Path `
-    ([IO.Path]::GetTempPath()) `
-    ("WindowsDynamicCapsule-release-{0}.exe" -f [Guid]::NewGuid().ToString("N"))
-$archive = [IO.Compression.ZipFile]::OpenRead($resolvedPackagePath)
+$temporaryFiles = [ordered]@{
+    "WindowsDynamicCapsule.exe" = Join-Path `
+        ([IO.Path]::GetTempPath()) `
+        ("WindowsDynamicCapsule-release-{0}.exe" -f
+            [Guid]::NewGuid().ToString("N"))
+    "WindowsDynamicCapsule.dll" = Join-Path `
+        ([IO.Path]::GetTempPath()) `
+        ("WindowsDynamicCapsule-release-{0}.dll" -f
+            [Guid]::NewGuid().ToString("N"))
+}
 try {
-    $executableEntry = @(
-        $archive.Entries |
-            Where-Object {
-                $_.FullName -ieq "WindowsDynamicCapsule.exe"
+    $archive = [IO.Compression.ZipFile]::OpenRead($resolvedPackagePath)
+    try {
+        foreach ($entryName in $temporaryFiles.Keys) {
+            $matchingEntries = @(
+                $archive.Entries |
+                    Where-Object { $_.FullName -ieq $entryName }
+            )
+            if ($matchingEntries.Count -ne 1) {
+                throw (
+                    "Expected exactly one $entryName inside the MSIX, found " +
+                    "$($matchingEntries.Count).")
             }
-    ) | Select-Object -First 1
-    if ($null -eq $executableEntry) {
-        throw "WindowsDynamicCapsule.exe was not found in the MSIX."
+
+            [IO.Compression.ZipFileExtensions]::ExtractToFile(
+                $matchingEntries[0],
+                $temporaryFiles[$entryName],
+                $true)
+        }
+    }
+    finally {
+        $archive.Dispose()
     }
 
-    [IO.Compression.ZipFileExtensions]::ExtractToFile(
-        $executableEntry,
-        $temporaryExecutable,
-        $true)
+    $expectedProductVersion = (
+        [version]$ExpectedVersion).ToString(3)
+    $executableVerification = Assert-InnerProjectBinary `
+        -FilePath $temporaryFiles["WindowsDynamicCapsule.exe"] `
+        -DisplayName "WindowsDynamicCapsule.exe" `
+        -ExpectedPublisher $ExpectedPublisher `
+        -ExpectedProductVersion $expectedProductVersion `
+        -ExpectedFileVersion $ExpectedVersion
+    $libraryVerification = Assert-InnerProjectBinary `
+        -FilePath $temporaryFiles["WindowsDynamicCapsule.dll"] `
+        -DisplayName "WindowsDynamicCapsule.dll" `
+        -ExpectedPublisher $ExpectedPublisher `
+        -ExpectedProductVersion $expectedProductVersion `
+        -ExpectedFileVersion $ExpectedVersion
 }
 finally {
-    $archive.Dispose()
-}
-
-try {
-    $executableSignature = Get-AuthenticodeSignature `
-        -LiteralPath $temporaryExecutable
-    if ($executableSignature.Status -ne "Valid" -or
-        $null -eq $executableSignature.SignerCertificate) {
-        throw (
-            "WindowsDynamicCapsule.exe inside the MSIX is not signed by " +
-            "a trusted certificate.")
-    }
-
-    if ($executableSignature.SignerCertificate.Subject -cne
-        $ExpectedPublisher) {
-        throw (
-            "The executable signer does not match the direct-release " +
-            "Publisher. Expected '$ExpectedPublisher', got " +
-            "'$($executableSignature.SignerCertificate.Subject)'.")
-    }
-
-    if ($null -eq $executableSignature.TimeStamperCertificate) {
-        throw (
-            "WindowsDynamicCapsule.exe inside the MSIX must have a " +
-            "trusted timestamp.")
-    }
-    $executableTimestampChainRoot = Get-TrustedChainRoot `
-        -Certificate $executableSignature.TimeStamperCertificate `
-        -Label "Inner executable timestamp"
-}
-finally {
-    if (Test-Path -LiteralPath $temporaryExecutable -PathType Leaf) {
-        Remove-Item -LiteralPath $temporaryExecutable -Force
+    foreach ($temporaryFile in $temporaryFiles.Values) {
+        if (Test-Path -LiteralPath $temporaryFile -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryFile -Force
+        }
     }
 }
 
@@ -233,5 +292,9 @@ finally {
     TimestampSubject = $timestampCertificate.Subject
     TimestampChainRoot = $timestampChainRoot
     InnerExecutableSigned = $true
-    InnerExecutableTimestampRoot = $executableTimestampChainRoot
+    InnerExecutableTimestampRoot =
+        $executableVerification.TimestampChainRoot
+    InnerLibrarySigned = $true
+    InnerLibraryTimestampRoot =
+        $libraryVerification.TimestampChainRoot
 }

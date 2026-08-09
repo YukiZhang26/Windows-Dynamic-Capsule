@@ -72,15 +72,27 @@ $fileVersionNode = $project.SelectSingleNode(
     "/Project/PropertyGroup/FileVersion")
 $informationalVersionNode = $project.SelectSingleNode(
     "/Project/PropertyGroup/InformationalVersion")
+$includeRevisionNode = $project.SelectSingleNode(
+    "/Project/PropertyGroup/IncludeSourceRevisionInInformationalVersion")
+$productNameNode = $project.SelectSingleNode(
+    "/Project/PropertyGroup/Product")
+$companyNode = $project.SelectSingleNode(
+    "/Project/PropertyGroup/Company")
 $projectVersionsMatch =
     $null -ne $projectVersionNode -and
     $null -ne $assemblyVersionNode -and
     $null -ne $fileVersionNode -and
     $null -ne $informationalVersionNode -and
+    $null -ne $includeRevisionNode -and
+    $null -ne $productNameNode -and
+    $null -ne $companyNode -and
     $projectVersionNode.InnerText -ceq $productVersion -and
     $assemblyVersionNode.InnerText -ceq $msixVersion -and
     $fileVersionNode.InnerText -ceq $msixVersion -and
-    $informationalVersionNode.InnerText -ceq $productVersion
+    $informationalVersionNode.InnerText -ceq $productVersion -and
+    $includeRevisionNode.InnerText -ceq "false" -and
+    $productNameNode.InnerText -ceq "Windows Dynamic Capsule" -and
+    $companyNode.InnerText -ceq "Yuki Zhang"
 
 $manifestNamespace = New-Object Xml.XmlNamespaceManager(
     $applicationManifest.NameTable)

@@ -1,0 +1,261 @@
+name: Trusted direct release signing
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Reviewed release tag, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: trusted-direct-signing-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-sign-verify:
+    name: Build, sign, and verify direct MSIX
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the reviewed tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_tag }}
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Validate signing configuration and release tag
+        id: release
+        shell: pwsh
+        env:
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          DIRECT_MSIX_IDENTITY: ${{ vars.DIRECT_MSIX_IDENTITY }}
+          DIRECT_MSIX_PUBLISHER: ${{ vars.DIRECT_MSIX_PUBLISHER }}
+          DIRECT_MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.DIRECT_MSIX_PUBLISHER_DISPLAY_NAME }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $requiredValues = [ordered]@{
+            SIGNPATH_ORGANIZATION_ID = $env:SIGNPATH_ORGANIZATION_ID
+            SIGNPATH_PROJECT_SLUG = $env:SIGNPATH_PROJECT_SLUG
+            SIGNPATH_SIGNING_POLICY_SLUG = $env:SIGNPATH_SIGNING_POLICY_SLUG
+            SIGNPATH_ARTIFACT_CONFIGURATION_SLUG = $env:SIGNPATH_ARTIFACT_CONFIGURATION_SLUG
+            DIRECT_MSIX_IDENTITY = $env:DIRECT_MSIX_IDENTITY
+            DIRECT_MSIX_PUBLISHER = $env:DIRECT_MSIX_PUBLISHER
+            DIRECT_MSIX_PUBLISHER_DISPLAY_NAME = $env:DIRECT_MSIX_PUBLISHER_DISPLAY_NAME
+            SIGNPATH_API_TOKEN = $env:SIGNPATH_API_TOKEN
+          }
+
+          $missing = @(
+            $requiredValues.GetEnumerator() |
+              Where-Object { [string]::IsNullOrWhiteSpace($_.Value) } |
+              ForEach-Object { $_.Key }
+          )
+          if ($missing.Count -gt 0) {
+            throw (
+              'SignPath acceptance configuration is incomplete: ' +
+              ($missing -join ', '))
+          }
+
+          $release = Get-Content `
+            -LiteralPath .\packaging\release-version.json `
+            -Raw `
+            -Encoding utf8 | ConvertFrom-Json
+          if ($env:REQUESTED_RELEASE_TAG -cne [string]$release.releaseTag) {
+            throw (
+              "Requested tag '$env:REQUESTED_RELEASE_TAG' does not match " +
+              "the release contract '$($release.releaseTag)'.")
+          }
+
+          $exactTag = git describe --tags --exact-match HEAD
+          if ($LASTEXITCODE -ne 0 -or
+              $exactTag.Trim() -cne $env:REQUESTED_RELEASE_TAG) {
+            throw 'The checked-out commit is not the requested exact tag.'
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace((git status --porcelain))) {
+            throw 'The signing build must start from a clean repository.'
+          }
+
+          "product_version=$($release.productVersion)" >> $env:GITHUB_OUTPUT
+          "msix_version=$($release.msixVersion)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore .\DynamicCapsule.slnx --configfile .\NuGet.Config
+
+      - name: Build Release with warnings as errors
+        run: >-
+          dotnet build .\DynamicCapsule.slnx
+          --configuration Release
+          --no-restore
+          --property:TreatWarningsAsErrors=true
+
+      - name: Run CoreProbe
+        run: >-
+          dotnet run
+          --project .\tests\DynamicCapsule.CoreProbe\DynamicCapsule.CoreProbe.csproj
+          --configuration Release
+          --no-build
+
+      - name: Run repository verification scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scripts = @(
+            'verify-accessibility.ps1'
+            'verify-event-policy.ps1'
+            'verify-interaction-presentation.ps1'
+            'verify-notification-capability.ps1'
+            'verify-packaging-pipeline.ps1'
+            'verify-release-readiness.ps1'
+            'verify-release-version.ps1'
+            'verify-signpath-readiness.ps1'
+            'verify-startup-lifecycle.ps1'
+            'verify-timer-pinning.ps1'
+          )
+
+          foreach ($script in $scripts) {
+            & (Join-Path $PWD "scripts\$script")
+            if (-not $?) {
+              throw "$script failed."
+            }
+          }
+
+      - name: Build unsigned direct-channel MSIX
+        shell: pwsh
+        env:
+          DIRECT_MSIX_IDENTITY: ${{ vars.DIRECT_MSIX_IDENTITY }}
+          DIRECT_MSIX_PUBLISHER: ${{ vars.DIRECT_MSIX_PUBLISHER }}
+          DIRECT_MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.DIRECT_MSIX_PUBLISHER_DISPLAY_NAME }}
+          MSIX_VERSION: ${{ steps.release.outputs.msix_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\scripts\build-msix.ps1 `
+            -PackageVersion $env:MSIX_VERSION `
+            -IdentityName $env:DIRECT_MSIX_IDENTITY `
+            -Publisher $env:DIRECT_MSIX_PUBLISHER `
+            -PublisherDisplayName $env:DIRECT_MSIX_PUBLISHER_DISPLAY_NAME `
+            -RequireCleanRepository
+
+      - name: Upload unsigned artifact for SignPath
+        id: upload-unsigned-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-direct-msix-${{ inputs.release_tag }}
+          path: artifacts/msix/WindowsDynamicCapsule_${{ steps.release.outputs.msix_version }}_x64.unsigned.msix
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Submit manual SignPath signing request
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-artifact.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: artifacts/signpath-signed
+          parameters: |
+            productVersion: ${{ toJSON(steps.release.outputs.product_version) }}
+            msixVersion: ${{ toJSON(steps.release.outputs.msix_version) }}
+
+      - name: Verify the trusted signed package
+        id: verify
+        shell: pwsh
+        env:
+          DIRECT_MSIX_IDENTITY: ${{ vars.DIRECT_MSIX_IDENTITY }}
+          DIRECT_MSIX_PUBLISHER: ${{ vars.DIRECT_MSIX_PUBLISHER }}
+          MSIX_VERSION: ${{ steps.release.outputs.msix_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SIGNING_REQUEST_URL: ${{ steps.signpath.outputs.signing-request-web-url }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signedPackages = @(
+            Get-ChildItem `
+              -LiteralPath .\artifacts\signpath-signed `
+              -Recurse `
+              -File `
+              -Filter *.msix
+          )
+          if ($signedPackages.Count -ne 1) {
+            throw (
+              'Expected exactly one signed MSIX, found ' +
+              $signedPackages.Count + '.')
+          }
+
+          $verifiedDirectory = '.\artifacts\verified-direct-release'
+          New-Item -ItemType Directory -Path $verifiedDirectory -Force |
+            Out-Null
+          $verifiedPackage = Join-Path `
+            $verifiedDirectory `
+            "WindowsDynamicCapsule_$env:MSIX_VERSION`_x64.msix"
+          Copy-Item `
+            -LiteralPath $signedPackages[0].FullName `
+            -Destination $verifiedPackage `
+            -Force
+
+          $verification = .\scripts\verify-direct-release-msix.ps1 `
+            -PackagePath $verifiedPackage `
+            -ExpectedIdentityName $env:DIRECT_MSIX_IDENTITY `
+            -ExpectedPublisher $env:DIRECT_MSIX_PUBLISHER `
+            -ExpectedVersion $env:MSIX_VERSION `
+            -ReleaseTag $env:RELEASE_TAG
+          if (-not $verification.PublicReleaseEligible) {
+            throw 'The signed package is not eligible for public release.'
+          }
+
+          $proof = [ordered]@{
+            schemaVersion = 1
+            releaseTag = $env:RELEASE_TAG
+            sourceCommit = $env:GITHUB_SHA
+            workflowRun = (
+              "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/" +
+              $env:GITHUB_RUN_ID)
+            signingRequest = $env:SIGNING_REQUEST_URL
+            package = [IO.Path]::GetFileName($verifiedPackage)
+            sha256 = $verification.Sha256
+            identityName = $verification.IdentityName
+            publisher = $verification.Publisher
+            version = $verification.Version
+            signerSubject = $verification.SignerSubject
+            signerThumbprint = $verification.SignerThumbprint
+            chainRoot = $verification.ChainRoot
+            timestampSubject = $verification.TimestampSubject
+            timestampChainRoot = $verification.TimestampChainRoot
+            publicReleaseEligible = $true
+          }
+          $proofPath = Join-Path $verifiedDirectory 'release-proof.json'
+          $proof | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath $proofPath -Encoding utf8NoBOM
+          $verification.Sha256 |
+            Set-Content `
+              -LiteralPath (Join-Path $verifiedDirectory 'SHA256SUMS.txt') `
+              -Encoding ascii
+
+      - name: Upload verified signed artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: verified-direct-msix-${{ inputs.release_tag }}
+          path: artifacts/verified-direct-release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      # Deliberately no GitHub Release publication step. The maintainer must
+      # review the proof and approve release publication separately.

@@ -190,7 +190,15 @@ $checks = @(
             $directReleaseVerifyScript.Contains(
                 "TimestampChainRoot") -and
             $directReleaseVerifyScript.Contains(
-                "WindowsDynamicCapsule.exe inside the MSIX") -and
+                '"WindowsDynamicCapsule.exe"') -and
+            $directReleaseVerifyScript.Contains(
+                '"WindowsDynamicCapsule.dll"') -and
+            $directReleaseVerifyScript.Contains(
+                "Assert-InnerProjectBinary") -and
+            $directReleaseVerifyScript.Contains(
+                "ProductVersion") -and
+            $directReleaseVerifyScript.Contains(
+                "FileVersion") -and
             $directReleaseVerifyScript.Contains(
                 '$signer.Subject -cne $ExpectedPublisher')
     },
@@ -198,11 +206,31 @@ $checks = @(
         Name = "SignPath deep signing is limited to project-owned binaries"
         Passed =
             $signPathArtifactConfiguration.Contains("<zip-file>") -and
+            $signPathArtifactConfiguration.Contains("<parameters>") -and
+            $signPathArtifactConfiguration.Contains(
+                'name="productVersion"') -and
+            $signPathArtifactConfiguration.Contains(
+                'name="msixVersion"') -and
             $signPathArtifactConfiguration.Contains("<msix-file") -and
             $signPathArtifactConfiguration.Contains(
                 'path="WindowsDynamicCapsule.exe"') -and
             $signPathArtifactConfiguration.Contains(
                 'path="WindowsDynamicCapsule.dll"') -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'product-name="Windows Dynamic Capsule"')
+            ).Count -eq 2 -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'product-version="\$\{productVersion\}"')
+            ).Count -eq 2 -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'file-version="\$\{msixVersion\}"')
+            ).Count -eq 2 -and
             -not $signPathArtifactConfiguration.Contains(
                 '<pe-file-set>') -and
             @(
