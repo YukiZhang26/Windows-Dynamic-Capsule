@@ -3,6 +3,43 @@ using DynamicCapsule.Services;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Windows.Automation;
+
+if (args.Any(argument => string.Equals(
+        argument,
+        "--live-clock",
+        StringComparison.OrdinalIgnoreCase)))
+{
+    try
+    {
+        return await ProbeWindowsClockLiveAsync();
+    }
+    catch (Exception exception)
+    {
+        try
+        {
+            TryPauseAndResetClockActivity(
+                ["TimerPlayPauseButton"],
+                ["TimerResetButton"]);
+            TryPauseAndResetClockActivity(
+                [
+                    "StopwatchPlayPauseButton",
+                    "StopWatchPlayPauseButton"
+                ],
+                ["StopwatchResetButton", "StopWatchResetButton"]);
+        }
+        catch
+        {
+        }
+
+        Console.Error.WriteLine(JsonSerializer.Serialize(new
+        {
+            succeeded = false,
+            error = exception.ToString()
+        }));
+        return 1;
+    }
+}
 
 if (args.Any(argument => string.Equals(
         argument,
@@ -158,6 +195,7 @@ VerifySettingsFallback();
 await VerifyPersistentLyricsCacheAsync();
 VerifyWindowsClockTimerParsing();
 VerifyWindowsClockStatusText();
+VerifyWindowsClockLaunchTarget();
 VerifyQqMusicSeekCommands();
 VerifyBrowserDownloadProgress();
 
@@ -433,6 +471,388 @@ void VerifyWindowsClockStatusText()
             stopwatchCount: 1)
         == "已连接 Windows 时钟 · 同步 2 个计时器 · 本地镜像秒表",
         "Windows Clock mixed status must distinguish synchronized and mirrored activity");
+}
+
+void VerifyWindowsClockLaunchTarget()
+{
+    Assert(
+        WindowsClockTimerSyncService.ClockAppUserModelId
+        == "Microsoft.WindowsAlarms_8wekyb3d8bbwe!App"
+        && WindowsClockTimerSyncService.ClockShellTarget
+        == "shell:AppsFolder\\Microsoft.WindowsAlarms_8wekyb3d8bbwe!App",
+        "Windows Clock must use the package AUMID shell target before the legacy protocol fallback");
+}
+
+async Task<int> ProbeWindowsClockLiveAsync()
+{
+    var gate = new object();
+    var synchronizedEvents = new Dictionary<string, CapsuleEvent>(
+        StringComparer.OrdinalIgnoreCase);
+    using var service = new WindowsClockTimerSyncService();
+    service.EventsChanged += (changedEvents, removedIds) =>
+    {
+        lock (gate)
+        {
+            foreach (var removedId in removedIds)
+            {
+                synchronizedEvents.Remove(removedId);
+            }
+
+            foreach (var changedEvent in changedEvents)
+            {
+                synchronizedEvents[changedEvent.EventId] = changedEvent;
+            }
+        }
+    };
+    service.Start();
+
+    var timerPageOpened = await service.OpenTimerAsync();
+    var timerStarted = timerPageOpened
+                       && await TryStartClockActivityAsync(
+                           TryStartClockTimer);
+    var timerEvent = timerStarted
+        ? await WaitForClockEventAsync(CapsuleEventKind.Timer)
+        : null;
+    var timerControlAvailable = timerEvent is not null
+                                && service.TryGetControlState(
+                                    timerEvent.EventId,
+                                    out var timerControl)
+                                && timerControl.CanControl
+                                && !timerControl.IsPaused;
+    var timerPaused = timerEvent is not null
+                      && await service.TogglePauseAsync(timerEvent.EventId);
+    if (timerPaused)
+    {
+        await Task.Delay(800);
+    }
+
+    var timerReset = timerEvent is not null
+                     && await service.ResetAsync(timerEvent.EventId);
+    await Task.Delay(800);
+
+    var stopwatchPageOpened = await service.OpenStopwatchAsync();
+    var stopwatchStarted = stopwatchPageOpened
+                           && await TryStartClockActivityAsync(
+                               TryStartClockStopwatch);
+    var stopwatchEvent = stopwatchStarted
+        ? await WaitForClockEventAsync(CapsuleEventKind.Stopwatch)
+        : null;
+    if (stopwatchEvent is not null)
+    {
+        await Task.Delay(1200);
+    }
+
+    var stopwatchControlAvailable = stopwatchEvent is not null
+                                    && service.TryGetControlState(
+                                        stopwatchEvent.EventId,
+                                        out var stopwatchControl)
+                                    && stopwatchControl.CanControl
+                                    && !stopwatchControl.IsPaused;
+    var stopwatchPaused = stopwatchEvent is not null
+                          && await service.TogglePauseAsync(
+                              stopwatchEvent.EventId);
+    if (stopwatchPaused)
+    {
+        await Task.Delay(800);
+    }
+
+    var stopwatchReset = stopwatchEvent is not null
+                         && await service.ResetAsync(
+                             stopwatchEvent.EventId);
+    await Task.Delay(800);
+
+    TryPauseAndResetClockActivity(
+        ["TimerPlayPauseButton"],
+        ["TimerResetButton"]);
+    TryPauseAndResetClockActivity(
+        ["StopwatchPlayPauseButton", "StopWatchPlayPauseButton"],
+        ["StopwatchResetButton", "StopWatchResetButton"]);
+
+    var succeeded = timerPageOpened
+                    && timerStarted
+                    && timerEvent is not null
+                    && timerControlAvailable
+                    && timerPaused
+                    && timerReset
+                    && stopwatchPageOpened
+                    && stopwatchStarted
+                    && stopwatchEvent is not null
+                    && stopwatchControlAvailable
+                    && stopwatchPaused
+                    && stopwatchReset;
+    var result = new
+    {
+        succeeded,
+        serviceStatus = service.Status,
+        timer = new
+        {
+            pageOpened = timerPageOpened,
+            started = timerStarted,
+            eventObserved = timerEvent,
+            controlAvailable = timerControlAvailable,
+            paused = timerPaused,
+            reset = timerReset
+        },
+        stopwatch = new
+        {
+            pageOpened = stopwatchPageOpened,
+            started = stopwatchStarted,
+            eventObserved = stopwatchEvent,
+            controlAvailable = stopwatchControlAvailable,
+            paused = stopwatchPaused,
+            reset = stopwatchReset
+        }
+    };
+    Console.WriteLine(JsonSerializer.Serialize(
+        result,
+        new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
+    return succeeded ? 0 : 1;
+
+    async Task<CapsuleEvent?> WaitForClockEventAsync(
+        CapsuleEventKind kind)
+    {
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            lock (gate)
+            {
+                var current = synchronizedEvents.Values
+                    .Where(candidate => candidate.Kind == kind)
+                    .OrderByDescending(candidate => candidate.CreatedAt)
+                    .FirstOrDefault();
+                if (current is not null)
+                {
+                    return current;
+                }
+            }
+
+            await Task.Delay(250);
+        }
+
+        return null;
+    }
+
+    async Task<bool> TryStartClockActivityAsync(Func<bool> tryStart)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (tryStart())
+            {
+                return true;
+            }
+
+            await Task.Delay(150);
+        }
+
+        return false;
+    }
+}
+
+bool TryStartClockTimer()
+{
+    var root = FindClockRootForLiveProbe();
+    var timerPage = FindClockElementByAutomationId(
+        root,
+        "TimerScrollViewer");
+    if (timerPage is null)
+    {
+        return false;
+    }
+
+    var cards = timerPage.FindAll(
+        TreeScope.Descendants,
+        new PropertyCondition(
+            AutomationElement.AutomationIdProperty,
+            "TimerViewGrid"));
+    foreach (AutomationElement card in cards)
+    {
+        var playPauseButton = FindClockElementByAutomationId(
+            card,
+            "TimerPlayPauseButton");
+        var actionName = GetClockElementName(playPauseButton);
+        if (ContainsClockProbeText(actionName, "Start", "开始")
+            && TryInvokeClockElement(playPauseButton))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryStartClockStopwatch()
+{
+    var root = FindClockRootForLiveProbe();
+    var playPauseButton = FindClockElementByAutomationIds(
+        root,
+        "StopwatchPlayPauseButton",
+        "StopWatchPlayPauseButton");
+    return ContainsClockProbeText(
+               GetClockElementName(playPauseButton),
+               "Start",
+               "开始")
+           && TryInvokeClockElement(playPauseButton);
+}
+
+void TryPauseAndResetClockActivity(
+    IReadOnlyList<string> playPauseAutomationIds,
+    IReadOnlyList<string> resetAutomationIds)
+{
+    var root = FindClockRootForLiveProbe();
+    var playPauseButton = FindClockElementByAutomationIds(
+        root,
+        [.. playPauseAutomationIds]);
+    if (ContainsClockProbeText(
+            GetClockElementName(playPauseButton),
+            "Pause",
+            "暂停"))
+    {
+        TryInvokeClockElement(playPauseButton);
+        Thread.Sleep(350);
+    }
+
+    var resetButton = FindClockElementByAutomationIds(
+        root,
+        [.. resetAutomationIds]);
+    TryInvokeClockElement(resetButton);
+}
+
+AutomationElement? FindClockRootForLiveProbe()
+{
+    try
+    {
+        var desktopChildren = AutomationElement.RootElement.FindAll(
+            TreeScope.Children,
+            Condition.TrueCondition);
+        foreach (AutomationElement candidate in desktopChildren)
+        {
+            var name = GetClockElementName(candidate);
+            if (string.Equals(
+                    name,
+                    "Clock",
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    name,
+                    "Alarms & Clock",
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    name,
+                    "时钟",
+                    StringComparison.OrdinalIgnoreCase)
+                || FindClockElementByAutomationId(
+                    candidate,
+                    "TimerButton") is not null)
+            {
+                return candidate;
+            }
+        }
+    }
+    catch (ElementNotAvailableException)
+    {
+    }
+
+    return null;
+}
+
+AutomationElement? FindClockElementByAutomationId(
+    AutomationElement? root,
+    string automationId)
+{
+    if (root is null)
+    {
+        return null;
+    }
+
+    try
+    {
+        return root.FindFirst(
+            TreeScope.Descendants,
+            new PropertyCondition(
+                AutomationElement.AutomationIdProperty,
+                automationId));
+    }
+    catch (ElementNotAvailableException)
+    {
+        return null;
+    }
+}
+
+AutomationElement? FindClockElementByAutomationIds(
+    AutomationElement? root,
+    params string[] automationIds)
+{
+    foreach (var automationId in automationIds)
+    {
+        var element = FindClockElementByAutomationId(root, automationId);
+        if (element is not null)
+        {
+            return element;
+        }
+    }
+
+    return null;
+}
+
+bool TryInvokeClockElement(AutomationElement? element)
+{
+    if (element is null)
+    {
+        return false;
+    }
+
+    try
+    {
+        if (element.TryGetCurrentPattern(
+                InvokePattern.Pattern,
+                out var invokePattern))
+        {
+            ((InvokePattern)invokePattern).Invoke();
+            return true;
+        }
+
+        if (element.TryGetCurrentPattern(
+                SelectionItemPattern.Pattern,
+                out var selectionPattern))
+        {
+            ((SelectionItemPattern)selectionPattern).Select();
+            return true;
+        }
+    }
+    catch (Exception exception) when (
+        exception is ElementNotAvailableException
+        or InvalidOperationException)
+    {
+    }
+
+    return false;
+}
+
+string GetClockElementName(AutomationElement? element)
+{
+    if (element is null)
+    {
+        return string.Empty;
+    }
+
+    try
+    {
+        return element.Current.Name ?? string.Empty;
+    }
+    catch (ElementNotAvailableException)
+    {
+        return string.Empty;
+    }
+}
+
+bool ContainsClockProbeText(
+    string value,
+    params string[] candidates)
+{
+    return candidates.Any(candidate => value.Contains(
+        candidate,
+        StringComparison.OrdinalIgnoreCase));
 }
 
 void VerifySettingsFallback()

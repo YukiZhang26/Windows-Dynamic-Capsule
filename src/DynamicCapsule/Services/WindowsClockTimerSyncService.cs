@@ -8,6 +8,10 @@ namespace DynamicCapsule.Services;
 internal sealed class WindowsClockTimerSyncService : IDisposable
 {
     internal const string SourceId = "windows-clock";
+    internal const string ClockAppUserModelId =
+        "Microsoft.WindowsAlarms_8wekyb3d8bbwe!App";
+    internal const string ClockShellTarget =
+        $"shell:AppsFolder\\{ClockAppUserModelId}";
 
     private static readonly TimeSpan PollInterval =
         TimeSpan.FromMilliseconds(500);
@@ -106,45 +110,54 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         return QueueControlRequest(eventId, reset: true);
     }
 
-    internal async Task<bool> OpenStopwatchAsync()
+    internal Task<bool> OpenTimerAsync()
+    {
+        return OpenClockPageAsync(
+            ["TimerButton", "TimerNavigationViewItem"],
+            ["Timer", "计时器"]);
+    }
+
+    internal Task<bool> OpenStopwatchAsync()
+    {
+        return OpenClockPageAsync(
+            [
+                "StopwatchButton",
+                "StopWatchButton",
+                "StopwatchNavigationViewItem"
+            ],
+            ["Stopwatch", "秒表"]);
+    }
+
+    private async Task<bool> OpenClockPageAsync(
+        IReadOnlyList<string> automationIds,
+        IReadOnlyList<string> names)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "ms-clock:",
-                UseShellExecute = true
-            });
-        }
-        catch
+        if (!TryLaunchClock())
         {
             return false;
         }
 
         return await Task.Run(async () =>
         {
-            for (var attempt = 0; attempt < 24 && !_disposed; attempt++)
+            for (var attempt = 0; attempt < 50 && !_disposed; attempt++)
             {
-                await Task.Delay(125).ConfigureAwait(false);
+                await Task.Delay(160).ConfigureAwait(false);
                 InvalidateClockRoot();
                 var clockRoot = GetClockRoot();
-                var stopwatchButton = FindFirstByAutomationIds(
+                var pageButton = FindFirstByAutomationIds(
                     clockRoot,
-                    "StopwatchButton",
-                    "StopWatchButton",
-                    "StopwatchNavigationViewItem")
+                    [.. automationIds])
                     ?? FindButtonByName(
                         clockRoot,
-                        "Stopwatch",
-                        "秒表");
-                if (stopwatchButton is null)
+                        [.. names]);
+                if (pageButton is null)
                 {
                     continue;
                 }
 
-                if (TryInvoke(stopwatchButton))
+                if (TryInvoke(pageButton))
                 {
                     _pollTimer.Change(TimeSpan.Zero, PollInterval);
                     return true;
@@ -153,6 +166,36 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
 
             return false;
         }).ConfigureAwait(false);
+    }
+
+    private static bool TryLaunchClock()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = ClockShellTarget,
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "ms-clock:",
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 
     public void Dispose()
@@ -493,7 +536,19 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
                                      && IsElementVisible(stopwatchPage);
         var stopwatchNavigationIsSelected = IsSelectionItemSelected(
             stopwatchNavigationItem);
-        if (!stopwatchPageIsVisible && !stopwatchNavigationIsSelected)
+        var visibleElapsedElement = FindFirstByAutomationIds(
+            clockRoot,
+            "StopwatchValueText",
+            "StopWatchValueText",
+            "StopwatchTimerText",
+            "ElapsedTimeText",
+            "TimeElapsedText");
+        var stopwatchControlsAreVisible = visibleElapsedElement is not null
+                                          && IsElementVisible(
+                                              visibleElapsedElement);
+        if (!stopwatchPageIsVisible
+            && !stopwatchNavigationIsSelected
+            && !stopwatchControlsAreVisible)
         {
             return null;
         }
@@ -502,13 +557,15 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         var searchRoot = stopwatchPageIsVisible
             ? stopwatchPage!
             : clockRoot;
-        var elapsedElement = FindFirstByAutomationIds(
-            searchRoot,
-            "StopwatchValueText",
-            "StopWatchValueText",
-            "StopwatchTimerText",
-            "ElapsedTimeText",
-            "TimeElapsedText");
+        var elapsedElement = stopwatchControlsAreVisible
+            ? visibleElapsedElement
+            : FindFirstByAutomationIds(
+                searchRoot,
+                "StopwatchValueText",
+                "StopWatchValueText",
+                "StopwatchTimerText",
+                "ElapsedTimeText",
+                "TimeElapsedText");
         var elapsedText = GetName(elapsedElement);
         if (!TryParseStopwatchElapsed(elapsedText, out var elapsed))
         {
