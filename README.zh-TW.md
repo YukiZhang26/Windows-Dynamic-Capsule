@@ -59,7 +59,7 @@ Copy-Item `
 
 ## 隱私與安全性
 
-通知內容、本機工作和使用者設定的處理方式請參閱 [PRIVACY.md](PRIVACY.md)。
+通知內容、本機工作和使用者設定的處理方式請參閱 [PRIVACY.zh-TW.md](PRIVACY.zh-TW.md)。
 安全性問題請依照 [SECURITY.md](SECURITY.md) 私下回報。公開截圖和範例資料
 不得包含私人通知、存取權杖、未經授權的歌詞、專輯封面或桌布。
 

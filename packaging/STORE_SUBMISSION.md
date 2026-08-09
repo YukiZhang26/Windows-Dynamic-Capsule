@@ -16,7 +16,7 @@ Control 的电脑上安装自签名根证书或关闭安全策略。
 - [x] 从 Partner Center 复制包身份。
 - [x] 生成最终 Store 身份 MSIX。
 - [ ] 准备至少一张不含第三方版权素材的应用截图。
-- [ ] 发布隐私政策并填写公开 URL。
+- [ ] 合并发布 PR 后验证三语隐私政策 URL，并填写到对应 Store 页面。
 - [ ] 设置私有受众并提交认证。
 
 正式 Store ID、Package Identity、Publisher、提交包哈希和受众信息仅保存在
@@ -90,7 +90,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 再运行认证并把 XML 报告保存到 `artifacts\wack`。缺少管理员权限、WACK、
 包身份或报告时会失败，不会把未执行认证误报为通过。
 
-## 3. 私有受众
+## 3. 隐私政策 URL
+
+当前发布 PR 合并到 `main` 后，分别验证并使用以下地址：
+
+- English: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.en.md>
+- 简体中文: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.md>
+- 繁體中文: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.zh-TW.md>
+
+这些页面必须保持公开且无需登录；提交前用匿名浏览器再次验证 HTTP 200。
+
+## 4. 私有受众
 
 在提交的 **Pricing and availability / 定价和可用性** 页面：
 
@@ -103,7 +113,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 私有受众必须在首次公开发布前设置。之后可以转为公开受众，但已公开
 的产品不能再改回私有。
 
-## 4. 权限用途说明草稿
+## 5. 权限用途说明草稿
 
 ### runFullTrust
 
@@ -125,7 +135,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 > `https://lrclib.net` 查询同步歌词。应用不创建账户、不上传通知内容，
 > 也不包含广告或遥测。
 
-## 5. 商店文案草稿
+## 6. 商店文案草稿
 
 ### 简短说明
 
@@ -147,7 +157,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 `dynamic capsule`、`media controls`、`lyrics`、`notifications`、
 `timer`、`productivity`
 
-## 6. 提交前不得遗漏
+## 7. 提交前不得遗漏
 
 - 将 `PRIVACY.md` 中的联系邮箱占位符替换为真实地址。
 - 把隐私政策发布到无需登录即可访问的 HTTPS 页面。

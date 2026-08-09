@@ -1,5 +1,7 @@
 # Windows Dynamic Capsule 隐私政策
 
+**简体中文** | [English](PRIVACY.en.md) | [繁體中文](PRIVACY.zh-TW.md)
+
 生效日期：2026 年 8 月 9 日
 
 Windows Dynamic Capsule 是一款在 Windows 电脑本地运行的桌面辅助
