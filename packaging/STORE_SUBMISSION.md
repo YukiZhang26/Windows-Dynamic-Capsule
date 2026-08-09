@@ -61,6 +61,35 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 中的身份是否与配置完全一致。输出仍标记为 `unsigned.msix`，这是预期
 行为；正式签名由 Microsoft Store 在认证后完成。
 
+### 使用正式包身份进行本机升级测试
+
+不要直接调用通用 `build-msix.ps1` 并依赖它的开发默认身份，否则 Windows
+会把测试包安装为另一个并行应用。需要验证 Store 身份的安装和升级时，使用：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-store-msix.ps1 `
+  -LocalTestCertificateThumbprint "<40 位测试证书指纹>"
+```
+
+该模式仍从被忽略的 `store-submission.json` 读取确切身份，并强制检查生成
+包的 Identity、Publisher、版本和签名状态。结果只用于本机安装/升级测试，
+不得上传 Partner Center，也不得作为 GitHub Release 发布。
+
+### 运行 Windows App Certification Kit
+
+安装当前稳定版 Windows SDK（包含 Windows App Certification Kit）后，在
+活动用户会话中打开管理员 PowerShell，然后执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run-wack.ps1
+```
+
+脚本只选择已安装的 `YukiZhang.WindowsDynamicCapsule` 包，先重置 WACK 状态，
+再运行认证并把 XML 报告保存到 `artifacts\wack`。缺少管理员权限、WACK、
+包身份或报告时会失败，不会把未执行认证误报为通过。
+
 ## 3. 私有受众
 
 在提交的 **Pricing and availability / 定价和可用性** 页面：

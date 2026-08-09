@@ -22,6 +22,7 @@ $commonScript = Read-Source "packaging\Packaging.Common.ps1"
 $buildScript = Read-Source "scripts\build-msix.ps1"
 $verifyScript = Read-Source "scripts\verify-msix.ps1"
 $storeBuildScript = Read-Source "scripts\build-store-msix.ps1"
+$wackScript = Read-Source "scripts\run-wack.ps1"
 $storeConfigTemplate = Read-Source (
     "packaging\store-submission.template.json")
 
@@ -64,6 +65,18 @@ $checks = @(
                 "PASTE_PACKAGE_IDENTITY_NAME_FROM_PARTNER_CENTER") -and
             $storeConfigTemplate.Contains(
                 "PASTE_PACKAGE_PUBLISHER_FROM_PARTNER_CENTER")
+    },
+    [PSCustomObject]@{
+        Name = "Store local test builds retain production identity"
+        Passed =
+            $storeBuildScript.Contains(
+                "LocalTestCertificateThumbprint") -and
+            $storeBuildScript.Contains(
+                "LocalTestingOnly") -and
+            $storeBuildScript.Contains(
+                "do not upload it to Partner ") -and
+            $storeBuildScript.Contains(
+                '$metadata.identityName -ne $identityName')
     },
     [PSCustomObject]@{
         Name = "Windows SDK tools are version pinned"
@@ -117,6 +130,16 @@ $checks = @(
             $verifyScript.Contains("appxblockmap.xml") -and
             $verifyScript.Contains("appxsignature.p7x") -and
             $verifyScript.Contains("Get-AuthenticodeSignature")
+    },
+    [PSCustomObject]@{
+        Name = "WACK runner validates the installed Store identity"
+        Passed =
+            $wackScript.Contains(
+                "Windows App Certification Kit must run from an elevated") -and
+            $wackScript.Contains("appcert.exe") -and
+            $wackScript.Contains("-packagefullname") -and
+            $wackScript.Contains("-reportoutputpath") -and
+            $wackScript.Contains("reset")
     }
 )
 

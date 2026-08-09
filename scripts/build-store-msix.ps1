@@ -2,6 +2,11 @@
 param(
     [string] $ConfigPath,
 
+    [ValidatePattern('^[0-9A-Fa-f]{40}$')]
+    [string] $LocalTestCertificateThumbprint,
+
+    [switch] $AllowUntrustedDevelopmentCertificate,
+
     [switch] $SkipRestore
 )
 
@@ -95,6 +100,19 @@ $buildParameters = @{
     Publisher = $publisher
     PublisherDisplayName = $publisherDisplayName
 }
+if (-not [string]::IsNullOrWhiteSpace(
+        $LocalTestCertificateThumbprint)) {
+    $buildParameters.CertificateThumbprint =
+        $LocalTestCertificateThumbprint
+    if ($AllowUntrustedDevelopmentCertificate) {
+        $buildParameters.AllowUntrustedDevelopmentCertificate = $true
+    }
+}
+elseif ($AllowUntrustedDevelopmentCertificate) {
+    throw (
+        "AllowUntrustedDevelopmentCertificate requires " +
+        "LocalTestCertificateThumbprint.")
+}
 if ($SkipRestore) {
     $buildParameters.SkipRestore = $true
 }
@@ -102,9 +120,17 @@ if ($SkipRestore) {
 & $buildScript @buildParameters
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$isLocalTestBuild = -not [string]::IsNullOrWhiteSpace(
+    $LocalTestCertificateThumbprint)
+$packageSuffix = if ($isLocalTestBuild) {
+    ".msix"
+}
+else {
+    ".unsigned.msix"
+}
 $metadataPath = Join-Path $repositoryRoot (
-    "artifacts\msix\WindowsDynamicCapsule_{0}_x64.unsigned.msix.metadata.json" `
-        -f $packageVersion)
+    "artifacts\msix\WindowsDynamicCapsule_{0}_x64{1}.metadata.json" `
+        -f $packageVersion, $packageSuffix)
 $metadata = Get-Content `
     -LiteralPath $metadataPath `
     -Raw `
@@ -114,8 +140,15 @@ $metadata = Get-Content `
 if (($metadata.identityName -ne $identityName) -or
     ($metadata.publisher -ne $publisher) -or
     ($metadata.packageVersion -ne $packageVersion) -or
-    ($metadata.signed -ne $false)) {
+    ($metadata.signed -ne $isLocalTestBuild)) {
     throw "Generated Store MSIX metadata does not match the config."
+}
+
+if ($isLocalTestBuild) {
+    Write-Warning (
+        "This package uses a local test certificate. It is only for " +
+        "installation and upgrade testing; do not upload it to Partner " +
+        "Center or publish it as a GitHub Release.")
 }
 
 [PSCustomObject]@{
@@ -126,5 +159,6 @@ if (($metadata.identityName -ne $identityName) -or
     Publisher = $metadata.publisher
     Version = $metadata.packageVersion
     Signed = $metadata.signed
-    StoreSigningRequired = $true
+    StoreSigningRequired = -not $isLocalTestBuild
+    LocalTestingOnly = $isLocalTestBuild
 }

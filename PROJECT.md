@@ -62,6 +62,8 @@ Windows Dynamic Capsule 是一个常驻桌面的轻量应用。空闲时，它�
 - [x] 公开 GitHub 仓库并启用私密漏洞报告、Dependabot 安全更新、Secret Scanning 和 Push Protection。
 - [x] 增加 Windows CI 与 NuGet Dependabot 配置；本地等价的 Release 编译、CoreProbe 和 8 项仓库验证全部通过。
 - [x] 在 `0.1.0.59` 安装实例上确认通知监听、MSIX 登录启动、本地任务管道和 Schema 3 配置均正常；升级前后设置文件 SHA-256 保持一致。
+- [x] 生成 Partner Center 正式身份的 `1.0.0.0` x64 Store 候选包，并通过独立 MSIX 结构、清单、架构和必需载荷验证。
+- [x] 使用相同 Store 身份生成测试签名 `0.9.0.0` 候选版，完成 `0.1.0.59 → 0.9.0.0` 就地升级；通知、启动项、任务管道和设置哈希均保持正常。
 - [ ] Windows 时钟当前停留在启动页；待其页面可正常加载后，补做计时器/秒表的真实同步与控制验收。
 
 ## 2. 产品定位
@@ -628,9 +630,9 @@ Windows 通知 ─┐
 3. 证书预检要求当前用户证书库、可访问私钥、Code Signing EKU、有效期和清单 Publisher 精确匹配。
 4. 有证书时先签名应用 EXE/DLL，再打包并签名 MSIX；默认加入 RFC 3161 时间戳，最后使用 SignTool 验签。
 5. 已实际生成并重新解包验证 `WindowsDynamicCapsule_0.1.0.0_x64.unsigned.msix`，包内 472 个可执行载荷中 470 个具有有效 Microsoft 签名，仅项目自己的 EXE 和 DLL 等待正式发布签名。
-6. 使用 Publisher 精确匹配且受本机信任的测试证书生成 `0.1.0.57`，应用 EXE/DLL 与 MSIX 均签名，并通过 DigiCert RFC 3161 时间戳和 SignTool 验签。
-7. 已完成 `0.1.0.55 → 0.1.0.56 → 0.1.0.57 → 0.1.0.58 → 0.1.0.59` 升级、卸载、干净重装、通知新增/移除、设置哈希保留和包内附属窗口实测；`0.1.0.59` 诊断确认通知监听与 MSIX 登录启动正常。
-8. 打包流水线检查 12/12 通过；缺失证书会在清理目录或签名文件前安全停止。
+6. 使用 Publisher 精确匹配且受本机信任的测试证书生成 `0.1.0.57` 和 `0.9.0.0`，应用 EXE/DLL 与 MSIX 均签名，并通过 DigiCert RFC 3161 时间戳和 SignTool 验签。
+7. 已完成 `0.1.0.55 → 0.1.0.56 → 0.1.0.57 → 0.1.0.58 → 0.1.0.59 → 0.9.0.0` 升级、卸载、干净重装、通知新增/移除、设置哈希保留和包内附属窗口实测；`0.9.0.0` 诊断确认通知监听、MSIX 登录启动和本地任务管道正常。
+8. 打包流水线检查 14/14 通过；缺失证书会在清理目录或签名文件前安全停止，Store 本机测试模式会强制沿用 Partner Center 身份并标记为禁止发布。
 9. 已添加 GitHub Windows CI：自动执行 Release 零警告编译、CoreProbe 和 8 项不依赖真实桌面交互的仓库验证。
 10. 已启用私密漏洞报告、Dependabot 安全更新、Secret Scanning、Push Protection 和每周 NuGet 依赖检查。
 
@@ -639,7 +641,7 @@ Windows 通知 ─┐
 1. 为 GitHub 直装版获取受公共信任、Subject 对应 Dynamic Capsule 发布身份的正式代码签名证书；Microsoft Store 包交由 Partner Center 签名。
 2. 手动撤销并恢复通知读取权限，验证降级提示和重新授权路径。
 3. 在混合 DPI 多显示器真机上补做 100%、150%、200% DPI、跨屏和热插拔验收。
-4. 生成 1.0 候选包，完成 Windows App Certification Kit 与 Partner Center 认证后再发布正式 Release。
+4. 已生成 Partner Center 身份的 `1.0.0.0` Store 候选包；安装最新 Windows SDK 后完成 Windows App Certification Kit 与 Partner Center 认证，再发布正式 Release。
 
 当前 Windows 时钟应用可检测到窗口，但停留在启动页，UI Automation 暂时无法读取计时器或秒表页面。胶囊会把此状态明确显示为“已检测到 Windows 时钟 · 计时器/秒表页面暂不可读取”；这不是通知权限或包身份故障，真实同步验收需等待 Windows 时钟恢复正常加载。
 
