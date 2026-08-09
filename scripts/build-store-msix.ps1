@@ -63,6 +63,18 @@ $config = Get-Content `
     -Encoding utf8 |
     ConvertFrom-Json
 
+$releaseVersionPath = Join-Path $PSScriptRoot (
+    "..\packaging\release-version.json")
+$releaseVersion = Get-Content `
+    -LiteralPath $releaseVersionPath `
+    -Raw `
+    -Encoding utf8 |
+    ConvertFrom-Json
+if ($releaseVersion.schemaVersion -ne 1 -or
+    [string]::IsNullOrWhiteSpace($releaseVersion.msixVersion)) {
+    throw "Release version contract is invalid."
+}
+
 $identityName = Get-RequiredConfigString `
     -Config $config `
     -Name "identityName"
@@ -83,6 +95,11 @@ if ($identityName -notmatch '^[A-Za-z0-9.-]{3,50}$') {
 if ($packageVersion -notmatch '^\d{1,5}(\.\d{1,5}){3}$') {
     throw "packageVersion must contain four numeric parts."
 }
+if ($packageVersion -cne [string]$releaseVersion.msixVersion) {
+    throw (
+        "Store packageVersion must match packaging\release-version.json. " +
+        "Expected '$($releaseVersion.msixVersion)', got '$packageVersion'.")
+}
 
 $versionParts = @($packageVersion.Split('.') | ForEach-Object {
     [int]$_
@@ -99,6 +116,7 @@ $buildParameters = @{
     IdentityName = $identityName
     Publisher = $publisher
     PublisherDisplayName = $publisherDisplayName
+    RequireCleanRepository = $true
 }
 if (-not [string]::IsNullOrWhiteSpace(
         $LocalTestCertificateThumbprint)) {

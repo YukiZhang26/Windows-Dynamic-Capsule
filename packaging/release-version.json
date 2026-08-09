@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "productVersion": "1.0.0",
+  "msixVersion": "1.0.0.0",
+  "releaseTag": "v1.0.0",
+  "testedUpgradeBaseline": "0.9.0.0"
+}

@@ -57,6 +57,7 @@ jobs:
             'verify-notification-capability.ps1'
             'verify-packaging-pipeline.ps1'
             'verify-release-readiness.ps1'
+            'verify-release-version.ps1'
             'verify-startup-lifecycle.ps1'
             'verify-timer-pinning.ps1'
           )

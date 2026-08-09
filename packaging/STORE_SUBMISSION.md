@@ -81,6 +81,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 包的 Identity、Publisher、版本和签名状态。结果只用于本机安装/升级测试，
 不得上传 Partner Center，也不得作为 GitHub Release 发布。
 
+请求管理员权限前，先以普通用户运行只读预检：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\install-local-test-msix.ps1 `
+  -CertificatePath "<公开测试证书 .cer>" `
+  -PackagePath "<测试签名 .msix>" `
+  -ExpectedThumbprint "<40 位测试证书指纹>" `
+  -ResultPath ".\artifacts\msix\install-preflight.json" `
+  -PreflightOnly
+```
+
+预检不会导入证书、安装包、关闭应用或修改设置。它会校验 SHA-256、时间戳、
+Identity、Publisher、架构和版本关系，并把本次操作标记为 `Install`、`Upgrade`
+或显式允许的 `Repair`。预检通过后，在管理员 PowerShell 中移除
+`-PreflightOnly` 再运行相同命令；正式安装阶段还会要求受信任签名，禁止降级，
+并验证安装前后 `settings.json` 的 SHA-256 保持不变。安装前新导入的测试证书
+若在写入包之前失败，会由脚本精确回滚。
+
 ### 运行 Windows App Certification Kit
 
 先下载并验证当前稳定版 Windows SDK 引导程序；此命令不会安装组件：
@@ -191,5 +210,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 - 将 `PRIVACY.md` 中的联系邮箱占位符替换为真实地址。
 - 把隐私政策发布到无需登录即可访问的 HTTPS 页面。
 - 截图不能包含他人的私人通知、邮箱、令牌或未经授权的壁纸和专辑图。
-- 首次提交使用 `0.1.0.0`；后续每次提交必须提高版本号。
+- 当前 1.0 首次提交使用 `1.0.0.0`；后续每次提交必须提高版本号，并同步更新
+  `packaging/release-version.json`。
 - 上传包前再次执行 `verify-msix.ps1`，但不要要求本地签名。

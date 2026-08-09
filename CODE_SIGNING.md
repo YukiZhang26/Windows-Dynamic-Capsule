@@ -81,9 +81,9 @@ never committed to the repository or exposed to pull-request workflows.
 ## Privacy and provenance
 
 The application's data handling is documented in
-[PRIVACY.en.md](PRIVACY.en.md). The app does not upload notification or task
-content. Network access for lyrics is user-triggered by media playback and is
-described in the privacy policy.
+[PRIVACY.en.md](PRIVACY.en.md). The app does not upload notification, task,
+Bluetooth-device, or Wi-Fi content. Network access for lyrics is user-triggered
+by media playback and is described in the privacy policy.
 
 Every public binary release will include a SHA-256 digest and a link to the
 source tag and CI run from which it was built.

@@ -54,7 +54,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\build-msix.ps1 `
-  -PackageVersion "0.1.0.0" `
+  -PackageVersion "1.0.0.0" `
   -CertificateThumbprint "<40 位证书指纹>"
 ```
 
@@ -77,11 +77,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\verify-msix.ps1 `
-  -PackagePath ".\artifacts\msix\WindowsDynamicCapsule_0.1.0.0_x64.msix" `
+  -PackagePath ".\artifacts\msix\WindowsDynamicCapsule_1.0.0.0_x64.msix" `
   -RequireSignature
 ```
 
-## 5. 当前测试机限制
+## 5. 本机安装与升级预检
+
+本机测试签名包在请求管理员权限前，应先运行只读升级预检：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\install-local-test-msix.ps1 `
+  -CertificatePath "<公开测试证书 .cer>" `
+  -PackagePath "<测试签名 .msix>" `
+  -ExpectedThumbprint "<40 位测试证书指纹>" `
+  -ResultPath ".\artifacts\msix\install-preflight.json" `
+  -PreflightOnly
+```
+
+该模式只读取包、同名元数据、已安装版本和设置哈希，结果中必须为
+`passed=true` 与 `systemStateModified=false`。预检通过后，才在管理员
+PowerShell 中移除 `-PreflightOnly` 执行安装。脚本禁止降级和隐式同版本覆盖，
+并在安装后核对确切版本、Publisher 与设置文件哈希。
+
+## 6. 当前测试机限制
 
 当前测试机的企业 Code Integrity 策略 ID 为：
 

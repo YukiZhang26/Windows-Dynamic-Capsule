@@ -7,7 +7,7 @@ param(
     [string] $RuntimeIdentifier = "win-x64",
 
     [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
-    [string] $PackageVersion = "0.1.0.0",
+    [string] $PackageVersion = "1.0.0.0",
 
     [ValidatePattern('^[A-Za-z0-9.-]{3,50}$')]
     [string] $IdentityName = "DynamicCapsule",
@@ -27,6 +27,8 @@ param(
     [switch] $FrameworkDependent,
 
     [switch] $SkipRestore,
+
+    [switch] $RequireCleanRepository,
 
     [string] $WindowsSdkBuildToolsVersion = "10.0.28000.2526"
 )
@@ -247,6 +249,51 @@ function Assert-CodeSignature {
 }
 
 $repositoryRoot = Get-RepositoryRoot
+$sourceCommit = $null
+$sourceBranch = $null
+$sourceDirty = $null
+$gitCommand = Get-Command git -ErrorAction SilentlyContinue
+if ($null -ne $gitCommand) {
+    $sourceCommitOutput = @(
+        & $gitCommand.Source `
+            -c "safe.directory=$repositoryRoot" `
+            -C $repositoryRoot `
+            rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $sourceCommitOutput.Count -eq 1) {
+        $sourceCommit = $sourceCommitOutput[0].Trim().ToLowerInvariant()
+        $sourceBranchOutput = @(
+            & $gitCommand.Source `
+                -c "safe.directory=$repositoryRoot" `
+                -C $repositoryRoot `
+                branch --show-current 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $sourceBranchOutput.Count -eq 1) {
+            $sourceBranch = $sourceBranchOutput[0].Trim()
+        }
+
+        $sourceStatus = @(
+            & $gitCommand.Source `
+                -c "safe.directory=$repositoryRoot" `
+                -C $repositoryRoot `
+                status --porcelain --untracked-files=normal 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            $sourceCommit = $null
+            $sourceBranch = $null
+        }
+        else {
+            $sourceDirty = $sourceStatus.Count -gt 0
+        }
+    }
+}
+
+if ($RequireCleanRepository -and $null -eq $sourceCommit) {
+    throw "A readable Git source commit is required for this package build."
+}
+if ($RequireCleanRepository -and $sourceDirty) {
+    throw (
+        "The repository contains tracked or untracked changes. Commit or " +
+        "remove them before building a release candidate.")
+}
+
 $dotnetPath = Get-RepositoryDotnet -RepositoryRoot $repositoryRoot
 $projectPath = Join-Path $repositoryRoot (
     "src\DynamicCapsule\DynamicCapsule.csproj")
@@ -570,7 +617,7 @@ if ($null -ne $certificate) {
 
 $packageHash = Get-FileHash -LiteralPath $packagePath -Algorithm SHA256
 $metadata = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     package = $packagePath
     sha256 = $packageHash.Hash
     identityName = $IdentityName
@@ -593,6 +640,9 @@ $metadata = [ordered]@{
     executablePayloadCount = $executablePayloads.Count
     unsignedPayloadCountBeforeSigning = $unsignedPayloads.Count
     invalidPayloadSignatureCount = $invalidPayloads.Count
+    sourceCommit = $sourceCommit
+    sourceBranch = $sourceBranch
+    sourceDirty = $sourceDirty
     createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
 }
 $metadataPath = "$packagePath.metadata.json"

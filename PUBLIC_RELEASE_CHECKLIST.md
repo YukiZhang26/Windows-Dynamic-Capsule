@@ -36,6 +36,8 @@
 > 权限状态均保持正常。该测试证书只用于本机验收，不作为公开 Release 的
 > 可信签名。`1.0.0.0` 未签名包只用于 Partner Center 提交并由 Store 签名，
 > 不作为 GitHub 直装包发布。
+> `0.9.1.0` 已通过只读升级预检，确认候选身份、Publisher、SHA-256、时间戳、
+> `0.9.0.0 → 0.9.1.0` 版本关系和当前设置哈希；预检未修改系统状态。
 
 代码签名与双渠道身份策略见 [CODE_SIGNING.md](CODE_SIGNING.md)。GitHub
 直装渠道必须使用独立且稳定的包身份；Store 包与直装包不能互相覆盖升级。
@@ -45,6 +47,8 @@
 - [ ] `dotnet build .\DynamicCapsule.slnx -c Release` 通过。
 - [ ] CoreProbe 和相关 `scripts/verify-*.ps1` 检查通过。
 - [ ] MSIX 版本号高于上次提交版本。
+- [ ] `scripts/verify-release-version.ps1 -RequireCandidateArtifact` 确认版本契约、
+      当前提交 SHA 与候选包元数据完全一致。
 - [ ] `runFullTrust`、通知、网络访问和隐私说明与实际代码一致。
 - [ ] 发布包和源码中没有调试日志、个人路径或私有配置。
 

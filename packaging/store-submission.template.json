@@ -2,6 +2,6 @@
   "identityName": "PASTE_PACKAGE_IDENTITY_NAME_FROM_PARTNER_CENTER",
   "publisher": "PASTE_PACKAGE_PUBLISHER_FROM_PARTNER_CENTER",
   "publisherDisplayName": "PASTE_PUBLISHER_DISPLAY_NAME_FROM_PARTNER_CENTER",
-  "packageVersion": "0.1.0.0",
+  "packageVersion": "1.0.0.0",
   "privateAudience": true
 }

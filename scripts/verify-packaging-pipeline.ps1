@@ -24,6 +24,7 @@ $verifyScript = Read-Source "scripts\verify-msix.ps1"
 $directReleaseVerifyScript = Read-Source (
     "scripts\verify-direct-release-msix.ps1")
 $storeBuildScript = Read-Source "scripts\build-store-msix.ps1"
+$localInstallScript = Read-Source "scripts\install-local-test-msix.ps1"
 $prepareWackScript = Read-Source "scripts\prepare-wack.ps1"
 $wackScript = Read-Source "scripts\run-wack.ps1"
 $storeConfigTemplate = Read-Source (
@@ -84,6 +85,19 @@ $checks = @(
                 '$metadata.identityName -ne $identityName')
     },
     [PSCustomObject]@{
+        Name = "Local install verifies identity, version, and settings"
+        Passed =
+            $localInstallScript.Contains("MSIX SHA-256 does not match") -and
+            $localInstallScript.Contains("Package downgrade is not allowed") -and
+            $localInstallScript.Contains("AllowSameVersionReinstall") -and
+            $localInstallScript.Contains("PreflightOnly") -and
+            $localInstallScript.Contains("systemStateModified") -and
+            $localInstallScript.Contains("-RequireSignature") -and
+            $localInstallScript.Contains("settingsHashBefore") -and
+            $localInstallScript.Contains("settingsPreserved") -and
+            $localInstallScript.Contains("certificateRolledBack")
+    },
+    [PSCustomObject]@{
         Name = "Windows SDK tools are version pinned"
         Passed =
             $toolProject.Contains(
@@ -102,6 +116,16 @@ $checks = @(
             $buildScript.Contains(
                 '$selfContained = -not $FrameworkDependent') -and
             $buildScript.Contains("--self-contained")
+    },
+    [PSCustomObject]@{
+        Name = "Store candidates require clean Git provenance"
+        Passed =
+            $buildScript.Contains("RequireCleanRepository") -and
+            $buildScript.Contains("status --porcelain") -and
+            $buildScript.Contains("sourceCommit") -and
+            $buildScript.Contains("sourceDirty") -and
+            $storeBuildScript.Contains(
+                "RequireCleanRepository = `$true")
     },
     [PSCustomObject]@{
         Name = "Publisher must exactly match certificate subject"
