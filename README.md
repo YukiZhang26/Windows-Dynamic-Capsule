@@ -62,6 +62,10 @@ identity. The file is excluded by `.gitignore`. See
 [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) for the complete
 workflow.
 
+Public binaries follow the separate Store and direct-download rules in the
+[Code signing policy](CODE_SIGNING.md). Unsigned Store candidates and locally
+test-signed packages are never public release assets.
+
 The Microsoft Store product identity associated with this repository remains
 under the maintainer's control. Forking, modifying, or rebuilding the source
 does not grant permission to update that Store product. Third-party releases

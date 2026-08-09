@@ -24,12 +24,17 @@
       `main` 分支 HTTPS 页面均可无需登录访问。
 - [ ] 对公开 Release 的二进制进行可信代码签名；不要把本地开发证书当作
       面向用户的正式签名。
+- [x] 增加公开直装包强制验证：拒绝 unsigned/本机自签名包、无可信时间戳、
+      证书链不可信、Publisher 不匹配、内部 EXE 未签名以及 tag/版本不一致。
 
 > 2026-08-09 本地候选包 `0.9.0.0` 已使用 Partner Center 正式包身份完成
 > 测试证书签名、时间戳和 `0.1.0.59 → 0.9.0.0` 就地升级验证，设置哈希与
 > 权限状态均保持正常。该测试证书只用于本机验收，不作为公开 Release 的
 > 可信签名。`1.0.0.0` 未签名包只用于 Partner Center 提交并由 Store 签名，
 > 不作为 GitHub 直装包发布。
+
+代码签名与双渠道身份策略见 [CODE_SIGNING.md](CODE_SIGNING.md)。GitHub
+直装渠道必须使用独立且稳定的包身份；Store 包与直装包不能互相覆盖升级。
 
 ## 每次发布前
 
@@ -47,3 +52,5 @@
 - `verify-window.ps1` 的真实桌面窗口与截图验证。
 - `verify-msix.ps1 -RequireSignature`、Windows App Certification Kit 和
   Partner Center 认证。
+- 公开 GitHub 二进制还必须通过 `verify-direct-release-msix.ps1`；未接入
+  受信任签名服务前，只能发布源码和 Store 链接，不能附带安装包。

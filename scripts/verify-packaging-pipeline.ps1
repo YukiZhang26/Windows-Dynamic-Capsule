@@ -21,10 +21,14 @@ $toolProject = Read-Source (
 $commonScript = Read-Source "packaging\Packaging.Common.ps1"
 $buildScript = Read-Source "scripts\build-msix.ps1"
 $verifyScript = Read-Source "scripts\verify-msix.ps1"
+$directReleaseVerifyScript = Read-Source (
+    "scripts\verify-direct-release-msix.ps1")
 $storeBuildScript = Read-Source "scripts\build-store-msix.ps1"
 $wackScript = Read-Source "scripts\run-wack.ps1"
 $storeConfigTemplate = Read-Source (
     "packaging\store-submission.template.json")
+$signPathArtifactConfiguration = Read-Source (
+    "packaging\signpath-artifact-configuration.xml")
 
 $signExeIndex = $buildScript.IndexOf(
     '"WindowsDynamicCapsule.exe"')
@@ -130,6 +134,41 @@ $checks = @(
             $verifyScript.Contains("appxblockmap.xml") -and
             $verifyScript.Contains("appxsignature.p7x") -and
             $verifyScript.Contains("Get-AuthenticodeSignature")
+    },
+    [PSCustomObject]@{
+        Name = "Direct release rejects untrusted or mismatched signing"
+        Passed =
+            $directReleaseVerifyScript.Contains(
+                "PublicReleaseEligible") -and
+            $directReleaseVerifyScript.Contains(
+                "Self-signed certificates are not permitted") -and
+            $directReleaseVerifyScript.Contains(
+                "X509RevocationMode]::Online") -and
+            $directReleaseVerifyScript.Contains(
+                "TimeStamperCertificate") -and
+            $directReleaseVerifyScript.Contains(
+                "TimestampChainRoot") -and
+            $directReleaseVerifyScript.Contains(
+                "WindowsDynamicCapsule.exe inside the MSIX") -and
+            $directReleaseVerifyScript.Contains(
+                '$signer.Subject -cne $ExpectedPublisher')
+    },
+    [PSCustomObject]@{
+        Name = "SignPath deep signing is limited to project-owned binaries"
+        Passed =
+            $signPathArtifactConfiguration.Contains("<zip-file>") -and
+            $signPathArtifactConfiguration.Contains("<msix-file") -and
+            $signPathArtifactConfiguration.Contains(
+                'path="WindowsDynamicCapsule.exe"') -and
+            $signPathArtifactConfiguration.Contains(
+                'path="WindowsDynamicCapsule.dll"') -and
+            -not $signPathArtifactConfiguration.Contains(
+                '<pe-file-set>') -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    '<authenticode-sign\s*/>')
+            ).Count -eq 3
     },
     [PSCustomObject]@{
         Name = "WACK runner validates the installed Store identity"

@@ -53,6 +53,9 @@ Copy-Item `
 `.gitignore` 排除。完整流程請參閱
 [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md)。
 
+公開二進位檔必須遵守[程式碼簽署政策](CODE_SIGNING.md)中相互獨立的 Store
+與直接下載規則；未簽署的 Store 候選套件和本機測試簽署套件不會作為公開附件。
+
 本儲存庫對應的 Microsoft Store 產品身分由專案維護者控制。Fork、修改或
 重新建置原始碼不會取得更新該 Store 產品的權限；第三方發布時必須使用自己的
 應用程式名稱、套件身分、Publisher 和簽署資料。

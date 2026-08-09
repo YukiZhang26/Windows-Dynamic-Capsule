@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration
+  xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <msix-file
+      path="WindowsDynamicCapsule_${version}_x64.unsigned.msix">
+      <pe-file path="WindowsDynamicCapsule.exe">
+        <authenticode-sign />
+      </pe-file>
+      <pe-file path="WindowsDynamicCapsule.dll">
+        <authenticode-sign />
+      </pe-file>
+      <authenticode-sign />
+    </msix-file>
+  </zip-file>
+</artifact-configuration>

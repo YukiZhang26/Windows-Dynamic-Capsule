@@ -53,6 +53,9 @@ Copy-Item `
 `.gitignore` 排除。详细流程见
 [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md)。
 
+公开二进制必须遵守[代码签名策略](CODE_SIGNING.md)中相互独立的 Store 与
+直装渠道规则；未签名的 Store 候选包和本机测试签名包不会作为公开附件。
+
 本仓库对应的 Microsoft Store 产品身份由项目维护者控制。Fork、修改或
 重新构建源码不会获得更新该 Store 产品的权限；第三方发布时必须使用自己的
 应用名称、包身份、Publisher 和签名材料。

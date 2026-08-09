@@ -4,6 +4,10 @@
 Store 完成认证后会重新签名安装包，因此不需要在启用 Smart App
 Control 的电脑上安装自签名根证书或关闭安全策略。
 
+Store 与 GitHub 直装包的 Publisher 和升级链必须分开管理，详细门禁见
+[../CODE_SIGNING.md](../CODE_SIGNING.md)。Partner Center 上传候选包不能作为
+GitHub Release 附件。
+
 ## 当前准备状态
 
 - [x] Release、x64、自包含 MSIX 构建。
