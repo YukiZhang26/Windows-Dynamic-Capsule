@@ -25,6 +25,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
     private bool _started;
     private bool _disposed;
     private string _status = BuildStatus(
+        clockWindowAvailable: false,
         timerPageAvailable: false,
         timerCount: 0,
         stopwatchPageAvailable: false,
@@ -222,7 +223,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         {
             InvalidateClockRoot();
             ApplyObservation(
-                new TimerObservation(false, [], false, null),
+                new TimerObservation(false, false, []),
                 DateTimeOffset.UtcNow);
         }
         finally
@@ -382,13 +383,13 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
 
     private TimerObservation ObserveClock()
     {
-        var timerObservation = ObserveTimers();
         var clockRoot = GetClockRoot();
         if (clockRoot is null)
         {
-            return timerObservation;
+            return new TimerObservation(false, false, []);
         }
 
+        var timerObservation = ObserveTimers(clockRoot);
         var stopwatch = ObserveStopwatch(
             clockRoot,
             out var stopwatchPageAvailable);
@@ -399,20 +400,15 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         };
     }
 
-    private TimerObservation ObserveTimers()
+    private static TimerObservation ObserveTimers(
+        AutomationElement clockRoot)
     {
-        var clockRoot = GetClockRoot();
-        if (clockRoot is null)
-        {
-            return new TimerObservation(false, []);
-        }
-
         var timerPage = FindByAutomationId(
             clockRoot,
             "TimerScrollViewer");
         if (timerPage is null)
         {
-            return new TimerObservation(false, []);
+            return new TimerObservation(true, false, []);
         }
 
         var cards = timerPage.FindAll(
@@ -469,7 +465,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
                 resetButton));
         }
 
-        return new TimerObservation(true, observedTimers);
+        return new TimerObservation(true, true, observedTimers);
     }
 
     private static ObservedStopwatch? ObserveStopwatch(
@@ -774,6 +770,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
             }
 
             var nextStatus = BuildStatus(
+                observation.ClockWindowAvailable,
                 observation.TimerPageAvailable,
                 _timers.Count,
                 observation.StopwatchPageAvailable,
@@ -801,6 +798,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
     }
 
     internal static string BuildStatus(
+        bool clockWindowAvailable,
         bool timerPageAvailable,
         int timerCount,
         bool stopwatchPageAvailable,
@@ -812,7 +810,9 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         {
             if (timerCount == 0 && stopwatchCount == 0)
             {
-                return "等待 Windows 时钟（打开“时钟 > 计时器或秒表”后同步）";
+                return clockWindowAvailable
+                    ? "已检测到 Windows 时钟 · 计时器/秒表页面暂不可读取"
+                    : "等待 Windows 时钟（打开“时钟 > 计时器或秒表”后同步）";
             }
 
             var mirroredActivities = new List<string>(2);
@@ -826,7 +826,9 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
                 mirroredActivities.Add("秒表");
             }
 
-            return "Windows 时钟不可见 · 本地镜像 "
+            return (clockWindowAvailable
+                       ? "Windows 时钟页面暂不可读取 · 本地镜像 "
+                       : "Windows 时钟不可见 · 本地镜像 ")
                    + string.Join("、", mirroredActivities);
         }
 
@@ -1303,6 +1305,7 @@ internal sealed class WindowsClockTimerSyncService : IDisposable
         AutomationElement? ResetButton);
 
     private sealed record TimerObservation(
+        bool ClockWindowAvailable,
         bool TimerPageAvailable,
         IReadOnlyList<ObservedTimer> Timers,
         bool StopwatchPageAvailable = false,

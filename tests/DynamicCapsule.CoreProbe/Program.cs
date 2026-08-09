@@ -372,6 +372,7 @@ void VerifyWindowsClockStatusText()
 {
     Assert(
         WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: false,
             timerPageAvailable: false,
             timerCount: 0,
             stopwatchPageAvailable: false,
@@ -380,6 +381,7 @@ void VerifyWindowsClockStatusText()
         "Windows Clock idle status must mention both timers and stopwatches");
     Assert(
         WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: false,
             timerPageAvailable: false,
             timerCount: 1,
             stopwatchPageAvailable: false,
@@ -388,6 +390,25 @@ void VerifyWindowsClockStatusText()
         "Windows Clock hidden status must describe every mirrored activity");
     Assert(
         WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "已检测到 Windows 时钟 · 计时器/秒表页面暂不可读取",
+        "a Clock splash or inaccessible page must not be reported as absent");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: false,
+            timerCount: 1,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "Windows 时钟页面暂不可读取 · 本地镜像 1 个计时器、秒表",
+        "an inaccessible Clock page must preserve mirrored activities");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
             timerPageAvailable: true,
             timerCount: 0,
             stopwatchPageAvailable: false,
@@ -396,6 +417,7 @@ void VerifyWindowsClockStatusText()
         "an open Clock page without activity must report a connected idle state");
     Assert(
         WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
             timerPageAvailable: false,
             timerCount: 0,
             stopwatchPageAvailable: true,
@@ -404,6 +426,7 @@ void VerifyWindowsClockStatusText()
         "Windows Clock stopwatch-only status must report synchronized stopwatch");
     Assert(
         WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
             timerPageAvailable: true,
             timerCount: 2,
             stopwatchPageAvailable: false,
