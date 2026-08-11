@@ -8,9 +8,9 @@ Windows Dynamic Capsule 是一个常驻桌面的轻量应用。空闲时，它�
 
 它不是 Windows 通知中心的替代品，也不以复制 iPhone Dynamic Island 为目标。项目更关注 Windows 桌面上的实时任务感知、低打扰交互、全屏安全和开放的本地集成能力。
 
-当前项目处于产品定义与技术验证阶段。
+当前项目处于 1.0 发布候选与外部认证阶段。
 
-### 当前进度（2026-08-09）
+### 当前进度（2026-08-11）
 
 - [x] 建立 .NET 10 WPF 解决方案和可复现的项目内 SDK 环境。
 - [x] 实现顶部圆角胶囊窗口。
@@ -63,6 +63,7 @@ Windows Dynamic Capsule 是一个常驻桌面的轻量应用。空闲时，它�
 - [x] 增加 Windows CI 与 NuGet Dependabot 配置；本地等价的 Release 编译、CoreProbe 和 8 项仓库验证全部通过。
 - [x] 在 `0.1.0.59` 安装实例上确认通知监听、MSIX 登录启动、本地任务管道和 Schema 3 配置均正常；升级前后设置文件 SHA-256 保持一致。
 - [x] 生成 Partner Center 正式身份的 `1.0.0.0` x64 Store 候选包，并通过独立 MSIX 结构、清单、架构和必需载荷验证。
+- [x] 使用 Windows App Certification Kit `10.0.28000.2526` 对最终 Store 候选包完成非部分运行认证；总体结果为 `PASS`，23 项通过，另有 1 项不改变总体结果的可选静态分析提示。
 - [x] 使用相同 Store 身份生成测试签名 `0.9.0.0` 候选版，完成 `0.1.0.59 → 0.9.0.0` 就地升级；通知、启动项、任务管道和设置哈希均保持正常。
 - [x] 完成公开仓库媒体与敏感文件审计，并准备简中、繁中和英语三语隐私政策及 Store 对应 URL。
 - [x] 修复 Windows 时钟启动入口兼容问题，并针对 `11.2606.11.0` 完成计时器/秒表的真实同步、暂停与重置控制验收。
@@ -642,7 +643,7 @@ Windows 通知 ─┐
 1. 为 GitHub 直装版获取受公共信任、Subject 对应 Dynamic Capsule 发布身份的正式代码签名证书；Microsoft Store 包交由 Partner Center 签名。
 2. 手动撤销并恢复通知读取权限，验证降级提示和重新授权路径。
 3. 在混合 DPI 多显示器真机上补做 100%、150%、200% DPI、跨屏和热插拔验收。
-4. 已生成 Partner Center 身份的 `1.0.0.0` Store 候选包；安装最新 Windows SDK 后完成 Windows App Certification Kit 与 Partner Center 认证，再发布正式 Release。
+4. 已生成 Partner Center 身份的 `1.0.0.0` Store 候选包并通过 Windows App Certification Kit；仍需完成 Partner Center 私有受众认证，再发布 Store 版本。
 5. `0.9.1.0` 本机测试包已通过无系统改动的升级预检：确认从已安装 `0.9.0.0` 升级，包身份、Publisher、SHA-256、时间戳及安装前设置哈希一致；实际升级仍等待用户确认 UAC。
 
 Windows 时钟 `11.2606.11.0` 已完成重置与真实同步验收。实测确认旧的

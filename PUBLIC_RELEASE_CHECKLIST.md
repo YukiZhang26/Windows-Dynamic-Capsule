@@ -29,7 +29,8 @@
 - [x] 增加发布源审计：三语隐私披露、敏感能力、歌词网络端点、当前用户
       Named Pipe、遥测/调试钩子以及跟踪文件中的私密材料均由 CI 检查。
 - [x] 固定并验证 Microsoft 签名的 Windows SDK `10.0.28000.2526` 引导程序；
-      安装仍须人工确认并在安装器中只选择 WACK。
+      WACK 已安装到自定义 Windows Kits 路径，并对最终 Store 候选包完成
+      非部分运行测试，总体结果为 `PASS`。
 
 > 2026-08-09 本地候选包 `0.9.0.0` 已使用 Partner Center 正式包身份完成
 > 测试证书签名、时间戳和 `0.1.0.59 → 0.9.0.0` 就地升级验证，设置哈希与
@@ -55,10 +56,11 @@
 以下项目不能由 CI 替代，仍需在发布候选包上人工验证：
 
 - Windows 通知授权关闭与恢复。
-- Windows 时钟计时器/秒表的实际同步与控制。
+- Windows 时钟 `11.2606.11.0` 的计时器/秒表实际同步与控制已在当前测试签名
+  安装版通过；Store 签名最终包安装后仍需复跑。
 - 多显示器、不同 DPI、热插拔以及全屏切换。
 - `verify-window.ps1` 的真实桌面窗口与截图验证。
-- `verify-msix.ps1 -RequireSignature`、Windows App Certification Kit 和
-  Partner Center 认证。
+- Store 候选包的 Windows App Certification Kit 已完成；Store 签名包仍需
+  `verify-msix.ps1 -RequireSignature`、安装回归和 Partner Center 认证。
 - 公开 GitHub 二进制还必须通过 `verify-direct-release-msix.ps1`；未接入
   受信任签名服务前，只能发布源码和 Store 链接，不能附带安装包。

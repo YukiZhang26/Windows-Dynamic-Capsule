@@ -19,6 +19,9 @@ GitHub Release 附件。
 - [x] 预留应用名称 `Windows Dynamic Capsule`。
 - [x] 从 Partner Center 复制包身份。
 - [x] 生成最终 Store 身份 MSIX。
+- [x] 使用 WACK `10.0.28000.2526` 完成最终候选包测试；报告为
+      `OVERALL_RESULT=PASS`、`PARTIAL_RUN=FALSE`，23 项通过，另有 1 项
+      不改变总体结果的可选静态分析提示。
 - [x] 准备至少一张不含第三方版权素材的应用截图；本地候选为
       `artifacts/store/store-task-combination-1366x768-v2.png`（1366×768）。
 - [ ] 合并发布 PR 后验证三语隐私政策 URL，并填写到对应 Store 页面。
