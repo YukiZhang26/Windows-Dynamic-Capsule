@@ -251,13 +251,19 @@ $checks = @(
             -not $prepareWackScript.Contains("/quiet")
     },
     [PSCustomObject]@{
-        Name = "WACK runner validates the installed Store identity"
+        Name = "WACK runner validates Store packages or installed identity"
         Passed =
             $wackScript.Contains(
                 "Windows App Certification Kit must run from an elevated") -and
             $wackScript.Contains("appcert.exe") -and
+            $wackScript.Contains("Installed Roots") -and
+            $wackScript.Contains("Get-AuthenticodeSignature") -and
+            $wackScript.Contains("-appxpackagepath") -and
             $wackScript.Contains("-packagefullname") -and
             $wackScript.Contains("-reportoutputpath") -and
+            $wackScript.Contains("OVERALL_RESULT") -and
+            $wackScript.Contains("PARTIAL_RUN") -and
+            $wackScript.Contains("TestsFailed") -and
             $wackScript.Contains("reset")
     }
 )

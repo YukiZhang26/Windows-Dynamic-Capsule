@@ -120,16 +120,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 在 Windows SDK Setup 中只选择 **Windows App Certification Kit**，除非确实
 需要其他 SDK 组件。脚本不会静默安装，也不会绕过 UAC。安装完成后，在活动
-用户会话中打开管理员 PowerShell，然后执行：
+用户会话中打开管理员 PowerShell。Store 候选包无需预先安装，也无需导入测试
+证书；WACK 官方支持直接打开 MSIX 并选择相应测试工作流：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\run-wack.ps1
+  -File .\scripts\run-wack.ps1 `
+  -PackagePath `
+    .\artifacts\msix\WindowsDynamicCapsule_1.0.0.0_x64.unsigned.msix
 ```
 
-脚本只选择已安装的 `YukiZhang.WindowsDynamicCapsule` 包，先重置 WACK 状态，
-再运行认证并把 XML 报告保存到 `artifacts\wack`。缺少管理员权限、WACK、
-包身份或报告时会失败，不会把未执行认证误报为通过。
+脚本会从 Windows Kits 注册表自动发现 WACK，因此支持安装到 C 盘或自定义盘符；
+也可通过 `-AppCertPath` 显式指定 `appcert.exe`。它会验证工具的 Microsoft
+Authenticode 签名、重置 WACK 状态、直接测试候选包并把 XML 报告保存到
+`artifacts\wack`。不传 `-PackagePath` 时仍可测试已安装的
+`YukiZhang.WindowsDynamicCapsule`。缺少管理员权限、WACK、目标包或报告时会
+失败；脚本还会检查报告的 `OVERALL_RESULT`、`PARTIAL_RUN` 和逐项测试统计，
+不会把未执行或未完整执行的认证误报为通过。即使总体通过，也应检查输出中的
+`TestsFailed` 和 `FailedTests`：WACK 可能把个别可选静态分析项记为失败，但不
+改变总体认证结果。命令行流程依据
+[Microsoft 的 WACK 文档](https://learn.microsoft.com/windows/uwp/debug-test-perf/windows-app-certification-kit)。
 
 ## 3. 隐私政策 URL
 

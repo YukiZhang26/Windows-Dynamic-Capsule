@@ -16,9 +16,42 @@ $installerUri = (
 $expectedSha256 = (
     "02988EA51EAB2A2DB53E19735E51C97A6D221ADA74B9174FA0868870B9403BA0")
 $expectedProductVersion = "10.1.28000.2526"
-$appCertPath = (
+$defaultAppCertPath = (
     "C:\Program Files (x86)\Windows Kits\10\" +
     "App Certification Kit\appcert.exe")
+
+function Find-InstalledAppCert {
+    $kitRoots = [Collections.Generic.List[string]]::new()
+    foreach ($registryPath in @(
+            "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Kits\Installed Roots"
+        )) {
+        try {
+            $kitsRoot = [string](Get-ItemProperty `
+                    -LiteralPath $registryPath `
+                    -ErrorAction Stop).KitsRoot10
+            if (-not [string]::IsNullOrWhiteSpace($kitsRoot)) {
+                $kitRoots.Add($kitsRoot)
+            }
+        }
+        catch {
+            # The other registry view or the conventional path may exist.
+        }
+    }
+
+    $kitRoots.Add("C:\Program Files (x86)\Windows Kits\10")
+    $kitRoots.Add("C:\Program Files\Windows Kits\10")
+
+    foreach ($root in @($kitRoots | Select-Object -Unique)) {
+        $candidate = Join-Path $root (
+            "App Certification Kit\appcert.exe")
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    return $null
+}
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
@@ -27,8 +60,8 @@ if ([string]::IsNullOrWhiteSpace($InstallerPath)) {
 }
 
 $resolvedInstallerPath = [IO.Path]::GetFullPath($InstallerPath)
-$resolvedAppCertPath = [IO.Path]::GetFullPath($appCertPath)
-if (Test-Path -LiteralPath $resolvedAppCertPath -PathType Leaf) {
+$resolvedAppCertPath = Find-InstalledAppCert
+if ($null -ne $resolvedAppCertPath) {
     [PSCustomObject]@{
         WackInstalled = $true
         AppCert = $resolvedAppCertPath
@@ -38,6 +71,7 @@ if (Test-Path -LiteralPath $resolvedAppCertPath -PathType Leaf) {
     }
     return
 }
+$resolvedAppCertPath = [IO.Path]::GetFullPath($defaultAppCertPath)
 
 $installerDirectory = Split-Path -Parent $resolvedInstallerPath
 New-Item -ItemType Directory -Path $installerDirectory -Force |
