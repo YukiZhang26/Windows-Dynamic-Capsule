@@ -65,7 +65,25 @@ internal sealed class CapsuleEventScheduler : IDisposable
 
     internal void Publish(CapsuleEvent capsuleEvent)
     {
+        PublishBatch([capsuleEvent]);
+    }
+
+    internal void PublishBatch(
+        IEnumerable<CapsuleEvent> capsuleEvents,
+        IEnumerable<string>? removedEventIds = null)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(capsuleEvents);
+
+        var batch = capsuleEvents.ToArray();
+        var removals = (removedEventIds ?? [])
+            .Where(eventId => !string.IsNullOrWhiteSpace(eventId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (batch.Length == 0 && removals.Length == 0)
+        {
+            return;
+        }
 
         CapsuleEvent? next;
         CapsuleEvent? secondary;
@@ -73,7 +91,22 @@ internal sealed class CapsuleEventScheduler : IDisposable
         var presentationChanged = false;
         lock (_gate)
         {
-            _events[capsuleEvent.EventId] = capsuleEvent;
+            foreach (var eventId in removals)
+            {
+                _events.Remove(eventId);
+            }
+
+            foreach (var capsuleEvent in batch)
+            {
+                _events[capsuleEvent.EventId] = capsuleEvent;
+            }
+
+            if (_pinnedEventId is not null
+                && !_events.ContainsKey(_pinnedEventId))
+            {
+                _pinnedEventId = null;
+            }
+
             PruneToCapacity();
             (next, secondary) = SelectPresentedEvents(
                 DateTimeOffset.UtcNow);

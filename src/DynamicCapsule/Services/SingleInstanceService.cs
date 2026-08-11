@@ -142,7 +142,9 @@ internal sealed class SingleInstanceService : IDisposable
                     1,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                await pipe.WaitForConnectionAsync(cancellationToken);
+                await pipe
+                    .WaitForConnectionAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
                 using var reader = new StreamReader(
                     pipe,
@@ -150,7 +152,9 @@ internal sealed class SingleInstanceService : IDisposable
                     detectEncodingFromByteOrderMarks: false,
                     bufferSize: 4096,
                     leaveOpen: true);
-                var line = await reader.ReadLineAsync(cancellationToken);
+                var line = await reader
+                    .ReadLineAsync(cancellationToken)
+                    .ConfigureAwait(false);
                 var command = ParseCommand(line);
                 if (command is not null)
                 {
@@ -166,7 +170,9 @@ internal sealed class SingleInstanceService : IDisposable
             {
                 try
                 {
-                    await Task.Delay(200, cancellationToken);
+                    await Task
+                        .Delay(200, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

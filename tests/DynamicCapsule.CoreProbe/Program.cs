@@ -1,7 +1,45 @@
 using DynamicCapsule.Models;
 using DynamicCapsule.Services;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
+using System.Windows.Automation;
+
+if (args.Any(argument => string.Equals(
+        argument,
+        "--live-clock",
+        StringComparison.OrdinalIgnoreCase)))
+{
+    try
+    {
+        return await ProbeWindowsClockLiveAsync();
+    }
+    catch (Exception exception)
+    {
+        try
+        {
+            TryPauseAndResetClockActivity(
+                ["TimerPlayPauseButton"],
+                ["TimerResetButton"]);
+            TryPauseAndResetClockActivity(
+                [
+                    "StopwatchPlayPauseButton",
+                    "StopWatchPlayPauseButton"
+                ],
+                ["StopwatchResetButton", "StopWatchResetButton"]);
+        }
+        catch
+        {
+        }
+
+        Console.Error.WriteLine(JsonSerializer.Serialize(new
+        {
+            succeeded = false,
+            error = exception.ToString()
+        }));
+        return 1;
+    }
+}
 
 if (args.Any(argument => string.Equals(
         argument,
@@ -152,8 +190,12 @@ Assert(
 
 VerifyPinnedPriority();
 VerifyPrimarySecondaryPresentation();
+VerifyBatchMerge();
 VerifySettingsFallback();
+await VerifyPersistentLyricsCacheAsync();
 VerifyWindowsClockTimerParsing();
+VerifyWindowsClockStatusText();
+VerifyWindowsClockLaunchTarget();
 VerifyQqMusicSeekCommands();
 VerifyBrowserDownloadProgress();
 
@@ -169,7 +211,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine(
-    "Core probe passed: source rules, privacy, scheduling, settings, and Windows Clock timer parsing.");
+    "Core probe passed: source rules, privacy, batch scheduling, settings, persistent lyrics cache, and Windows Clock parsing/status.");
 return 0;
 
 int ProbeCapsuleQuickMenu()
@@ -364,6 +406,455 @@ void VerifyWindowsClockTimerParsing()
         "Windows Clock event IDs must be stable and distinguish duplicate cards");
 }
 
+void VerifyWindowsClockStatusText()
+{
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: false,
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "等待 Windows 时钟（打开“时钟 > 计时器或秒表”后同步）",
+        "Windows Clock idle status must mention both timers and stopwatches");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: false,
+            timerPageAvailable: false,
+            timerCount: 1,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "Windows 时钟不可见 · 本地镜像 1 个计时器、秒表",
+        "Windows Clock hidden status must describe every mirrored activity");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "已检测到 Windows 时钟 · 计时器/秒表页面暂不可读取",
+        "a Clock splash or inaccessible page must not be reported as absent");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: false,
+            timerCount: 1,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "Windows 时钟页面暂不可读取 · 本地镜像 1 个计时器、秒表",
+        "an inaccessible Clock page must preserve mirrored activities");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: true,
+            timerCount: 0,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 0)
+        == "已连接 Windows 时钟 · 暂无运行中的计时器或秒表",
+        "an open Clock page without activity must report a connected idle state");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: false,
+            timerCount: 0,
+            stopwatchPageAvailable: true,
+            stopwatchCount: 1)
+        == "已连接 Windows 时钟 · 同步秒表",
+        "Windows Clock stopwatch-only status must report synchronized stopwatch");
+    Assert(
+        WindowsClockTimerSyncService.BuildStatus(
+            clockWindowAvailable: true,
+            timerPageAvailable: true,
+            timerCount: 2,
+            stopwatchPageAvailable: false,
+            stopwatchCount: 1)
+        == "已连接 Windows 时钟 · 同步 2 个计时器 · 本地镜像秒表",
+        "Windows Clock mixed status must distinguish synchronized and mirrored activity");
+}
+
+void VerifyWindowsClockLaunchTarget()
+{
+    Assert(
+        WindowsClockTimerSyncService.ClockAppUserModelId
+        == "Microsoft.WindowsAlarms_8wekyb3d8bbwe!App"
+        && WindowsClockTimerSyncService.ClockShellTarget
+        == "shell:AppsFolder\\Microsoft.WindowsAlarms_8wekyb3d8bbwe!App",
+        "Windows Clock must use the package AUMID shell target before the legacy protocol fallback");
+}
+
+async Task<int> ProbeWindowsClockLiveAsync()
+{
+    var gate = new object();
+    var synchronizedEvents = new Dictionary<string, CapsuleEvent>(
+        StringComparer.OrdinalIgnoreCase);
+    using var service = new WindowsClockTimerSyncService();
+    service.EventsChanged += (changedEvents, removedIds) =>
+    {
+        lock (gate)
+        {
+            foreach (var removedId in removedIds)
+            {
+                synchronizedEvents.Remove(removedId);
+            }
+
+            foreach (var changedEvent in changedEvents)
+            {
+                synchronizedEvents[changedEvent.EventId] = changedEvent;
+            }
+        }
+    };
+    service.Start();
+
+    var timerPageOpened = await service.OpenTimerAsync();
+    var timerStarted = timerPageOpened
+                       && await TryStartClockActivityAsync(
+                           TryStartClockTimer);
+    var timerEvent = timerStarted
+        ? await WaitForClockEventAsync(CapsuleEventKind.Timer)
+        : null;
+    var timerControlAvailable = timerEvent is not null
+                                && service.TryGetControlState(
+                                    timerEvent.EventId,
+                                    out var timerControl)
+                                && timerControl.CanControl
+                                && !timerControl.IsPaused;
+    var timerPaused = timerEvent is not null
+                      && await service.TogglePauseAsync(timerEvent.EventId);
+    if (timerPaused)
+    {
+        await Task.Delay(800);
+    }
+
+    var timerReset = timerEvent is not null
+                     && await service.ResetAsync(timerEvent.EventId);
+    await Task.Delay(800);
+
+    var stopwatchPageOpened = await service.OpenStopwatchAsync();
+    var stopwatchStarted = stopwatchPageOpened
+                           && await TryStartClockActivityAsync(
+                               TryStartClockStopwatch);
+    var stopwatchEvent = stopwatchStarted
+        ? await WaitForClockEventAsync(CapsuleEventKind.Stopwatch)
+        : null;
+    if (stopwatchEvent is not null)
+    {
+        await Task.Delay(1200);
+    }
+
+    var stopwatchControlAvailable = stopwatchEvent is not null
+                                    && service.TryGetControlState(
+                                        stopwatchEvent.EventId,
+                                        out var stopwatchControl)
+                                    && stopwatchControl.CanControl
+                                    && !stopwatchControl.IsPaused;
+    var stopwatchPaused = stopwatchEvent is not null
+                          && await service.TogglePauseAsync(
+                              stopwatchEvent.EventId);
+    if (stopwatchPaused)
+    {
+        await Task.Delay(800);
+    }
+
+    var stopwatchReset = stopwatchEvent is not null
+                         && await service.ResetAsync(
+                             stopwatchEvent.EventId);
+    await Task.Delay(800);
+
+    TryPauseAndResetClockActivity(
+        ["TimerPlayPauseButton"],
+        ["TimerResetButton"]);
+    TryPauseAndResetClockActivity(
+        ["StopwatchPlayPauseButton", "StopWatchPlayPauseButton"],
+        ["StopwatchResetButton", "StopWatchResetButton"]);
+
+    var succeeded = timerPageOpened
+                    && timerStarted
+                    && timerEvent is not null
+                    && timerControlAvailable
+                    && timerPaused
+                    && timerReset
+                    && stopwatchPageOpened
+                    && stopwatchStarted
+                    && stopwatchEvent is not null
+                    && stopwatchControlAvailable
+                    && stopwatchPaused
+                    && stopwatchReset;
+    var result = new
+    {
+        succeeded,
+        serviceStatus = service.Status,
+        timer = new
+        {
+            pageOpened = timerPageOpened,
+            started = timerStarted,
+            eventObserved = timerEvent,
+            controlAvailable = timerControlAvailable,
+            paused = timerPaused,
+            reset = timerReset
+        },
+        stopwatch = new
+        {
+            pageOpened = stopwatchPageOpened,
+            started = stopwatchStarted,
+            eventObserved = stopwatchEvent,
+            controlAvailable = stopwatchControlAvailable,
+            paused = stopwatchPaused,
+            reset = stopwatchReset
+        }
+    };
+    Console.WriteLine(JsonSerializer.Serialize(
+        result,
+        new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
+    return succeeded ? 0 : 1;
+
+    async Task<CapsuleEvent?> WaitForClockEventAsync(
+        CapsuleEventKind kind)
+    {
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            lock (gate)
+            {
+                var current = synchronizedEvents.Values
+                    .Where(candidate => candidate.Kind == kind)
+                    .OrderByDescending(candidate => candidate.CreatedAt)
+                    .FirstOrDefault();
+                if (current is not null)
+                {
+                    return current;
+                }
+            }
+
+            await Task.Delay(250);
+        }
+
+        return null;
+    }
+
+    async Task<bool> TryStartClockActivityAsync(Func<bool> tryStart)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (tryStart())
+            {
+                return true;
+            }
+
+            await Task.Delay(150);
+        }
+
+        return false;
+    }
+}
+
+bool TryStartClockTimer()
+{
+    var root = FindClockRootForLiveProbe();
+    var timerPage = FindClockElementByAutomationId(
+        root,
+        "TimerScrollViewer");
+    if (timerPage is null)
+    {
+        return false;
+    }
+
+    var cards = timerPage.FindAll(
+        TreeScope.Descendants,
+        new PropertyCondition(
+            AutomationElement.AutomationIdProperty,
+            "TimerViewGrid"));
+    foreach (AutomationElement card in cards)
+    {
+        var playPauseButton = FindClockElementByAutomationId(
+            card,
+            "TimerPlayPauseButton");
+        var actionName = GetClockElementName(playPauseButton);
+        if (ContainsClockProbeText(actionName, "Start", "开始")
+            && TryInvokeClockElement(playPauseButton))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryStartClockStopwatch()
+{
+    var root = FindClockRootForLiveProbe();
+    var playPauseButton = FindClockElementByAutomationIds(
+        root,
+        "StopwatchPlayPauseButton",
+        "StopWatchPlayPauseButton");
+    return ContainsClockProbeText(
+               GetClockElementName(playPauseButton),
+               "Start",
+               "开始")
+           && TryInvokeClockElement(playPauseButton);
+}
+
+void TryPauseAndResetClockActivity(
+    IReadOnlyList<string> playPauseAutomationIds,
+    IReadOnlyList<string> resetAutomationIds)
+{
+    var root = FindClockRootForLiveProbe();
+    var playPauseButton = FindClockElementByAutomationIds(
+        root,
+        [.. playPauseAutomationIds]);
+    if (ContainsClockProbeText(
+            GetClockElementName(playPauseButton),
+            "Pause",
+            "暂停"))
+    {
+        TryInvokeClockElement(playPauseButton);
+        Thread.Sleep(350);
+    }
+
+    var resetButton = FindClockElementByAutomationIds(
+        root,
+        [.. resetAutomationIds]);
+    TryInvokeClockElement(resetButton);
+}
+
+AutomationElement? FindClockRootForLiveProbe()
+{
+    try
+    {
+        var desktopChildren = AutomationElement.RootElement.FindAll(
+            TreeScope.Children,
+            Condition.TrueCondition);
+        foreach (AutomationElement candidate in desktopChildren)
+        {
+            var name = GetClockElementName(candidate);
+            if (string.Equals(
+                    name,
+                    "Clock",
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    name,
+                    "Alarms & Clock",
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    name,
+                    "时钟",
+                    StringComparison.OrdinalIgnoreCase)
+                || FindClockElementByAutomationId(
+                    candidate,
+                    "TimerButton") is not null)
+            {
+                return candidate;
+            }
+        }
+    }
+    catch (ElementNotAvailableException)
+    {
+    }
+
+    return null;
+}
+
+AutomationElement? FindClockElementByAutomationId(
+    AutomationElement? root,
+    string automationId)
+{
+    if (root is null)
+    {
+        return null;
+    }
+
+    try
+    {
+        return root.FindFirst(
+            TreeScope.Descendants,
+            new PropertyCondition(
+                AutomationElement.AutomationIdProperty,
+                automationId));
+    }
+    catch (ElementNotAvailableException)
+    {
+        return null;
+    }
+}
+
+AutomationElement? FindClockElementByAutomationIds(
+    AutomationElement? root,
+    params string[] automationIds)
+{
+    foreach (var automationId in automationIds)
+    {
+        var element = FindClockElementByAutomationId(root, automationId);
+        if (element is not null)
+        {
+            return element;
+        }
+    }
+
+    return null;
+}
+
+bool TryInvokeClockElement(AutomationElement? element)
+{
+    if (element is null)
+    {
+        return false;
+    }
+
+    try
+    {
+        if (element.TryGetCurrentPattern(
+                InvokePattern.Pattern,
+                out var invokePattern))
+        {
+            ((InvokePattern)invokePattern).Invoke();
+            return true;
+        }
+
+        if (element.TryGetCurrentPattern(
+                SelectionItemPattern.Pattern,
+                out var selectionPattern))
+        {
+            ((SelectionItemPattern)selectionPattern).Select();
+            return true;
+        }
+    }
+    catch (Exception exception) when (
+        exception is ElementNotAvailableException
+        or InvalidOperationException)
+    {
+    }
+
+    return false;
+}
+
+string GetClockElementName(AutomationElement? element)
+{
+    if (element is null)
+    {
+        return string.Empty;
+    }
+
+    try
+    {
+        return element.Current.Name ?? string.Empty;
+    }
+    catch (ElementNotAvailableException)
+    {
+        return string.Empty;
+    }
+}
+
+bool ContainsClockProbeText(
+    string value,
+    params string[] candidates)
+{
+    return candidates.Any(candidate => value.Contains(
+        candidate,
+        StringComparison.OrdinalIgnoreCase));
+}
+
 void VerifySettingsFallback()
 {
     var temporaryDirectory = Path.Combine(
@@ -379,6 +870,7 @@ void VerifySettingsFallback()
                 TopGap = 100,
                 TopStashed = true,
                 PrivacyLevel = EventPrivacyLevel.Masked,
+                LyricsFallbackProvider = LyricsFallbackProvider.None,
                 NotificationBlockList = [" app.id ", "APP.ID"]
             },
             out var saveError);
@@ -390,8 +882,33 @@ void VerifySettingsFallback()
             && loaded.Settings.TopGap == AppSettings.MaximumTopGap
             && loaded.Settings.TopStashed
             && loaded.Settings.PrivacyLevel == EventPrivacyLevel.Masked
+            && loaded.Settings.LyricsFallbackProvider
+                == LyricsFallbackProvider.None
             && loaded.Settings.NotificationBlockList.SequenceEqual(["app.id"]),
             "saved settings must normalize and round-trip");
+
+        File.WriteAllText(
+            settingsService.SettingsPath,
+            """
+            {
+              "schemaVersion": 3,
+              "monitorTarget": "followActiveWindow",
+              "topGap": 10,
+              "enableAnimations": true,
+              "hideInFullscreen": true,
+              "doNotDisturb": false,
+              "startWithWindows": false,
+              "privacyLevel": "summary",
+              "notificationAllowList": [],
+              "notificationBlockList": []
+            }
+            """);
+        var legacy = settingsService.Load();
+        Assert(
+            !legacy.UsedDefaults
+            && legacy.Settings.LyricsFallbackProvider
+                == LyricsFallbackProvider.QqMusic,
+            "existing schema 3 settings must gain the default lyrics fallback without reset");
 
         File.WriteAllText(settingsService.SettingsPath, "{ invalid json");
         var corrupt = settingsService.Load();
@@ -402,6 +919,95 @@ void VerifySettingsFallback()
             && corrupt.Settings.PrivacyLevel == EventPrivacyLevel.Summary
             && !string.IsNullOrWhiteSpace(corrupt.Warning),
             "corrupt settings must fall back to defaults with a warning");
+    }
+    finally
+    {
+        if (Directory.Exists(temporaryDirectory))
+        {
+            Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+}
+
+async Task VerifyPersistentLyricsCacheAsync()
+{
+    var temporaryDirectory = Path.Combine(
+        Path.GetTempPath(),
+        $"dynamic-capsule-lyrics-{Guid.NewGuid():N}");
+    var snapshot = new MediaSnapshot(
+        "probe.player",
+        "Probe Player",
+        "Cache Song",
+        "Cache Artist",
+        "Cache Album",
+        null,
+        true,
+        true,
+        true,
+        true,
+        true,
+        TimeSpan.Zero,
+        TimeSpan.FromSeconds(180),
+        DateTimeOffset.UtcNow,
+        null);
+
+    try
+    {
+        var onlineHandler = new ProbeHttpMessageHandler(_ =>
+            new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "id": 1,
+                      "trackName": "Cache Song",
+                      "artistName": "Cache Artist",
+                      "albumName": "Cache Album",
+                      "duration": 180,
+                      "instrumental": false,
+                      "plainLyrics": "cached line",
+                      "syncedLyrics": "[00:01.00]cached line"
+                    }
+                    """)
+            });
+        using (var onlineClient = new HttpClient(onlineHandler)
+               {
+                   BaseAddress = new Uri("https://lrclib.net")
+               })
+        using (var onlineService = new LyricsService(
+                   onlineClient,
+                   temporaryDirectory))
+        {
+            onlineService.UpdateFallbackProvider(
+                LyricsFallbackProvider.None);
+            var onlineResult = await onlineService.GetLyricsAsync(
+                snapshot,
+                CancellationToken.None);
+            Assert(
+                onlineResult.Status == LyricsLookupStatus.Found
+                && onlineResult.Lines.Count == 1,
+                "online lyrics lookup must create a cacheable result");
+        }
+
+        var offlineHandler = new ProbeHttpMessageHandler(_ =>
+            new HttpResponseMessage(
+                System.Net.HttpStatusCode.ServiceUnavailable));
+        using var offlineClient = new HttpClient(offlineHandler)
+        {
+            BaseAddress = new Uri("https://lrclib.net")
+        };
+        using var offlineService = new LyricsService(
+            offlineClient,
+            temporaryDirectory);
+        offlineService.UpdateFallbackProvider(LyricsFallbackProvider.None);
+        var cachedResult = await offlineService.GetLyricsAsync(
+            snapshot,
+            CancellationToken.None);
+        Assert(
+            cachedResult.Status == LyricsLookupStatus.Found
+            && cachedResult.Lines.Single().Text == "cached line"
+            && offlineHandler.RequestCount == 0,
+            "persistent lyrics cache must survive service restart and avoid a network request");
     }
     finally
     {
@@ -543,6 +1149,82 @@ void VerifyPrimarySecondaryPresentation()
         "a running task must remain visible beside terminal primary content");
 }
 
+void VerifyBatchMerge()
+{
+    using var scheduler = new CapsuleEventScheduler();
+    var presentationChanges = 0;
+    scheduler.PresentedEventsChanged += (_, _) => presentationChanges++;
+
+    var createdAt = DateTimeOffset.UtcNow;
+    var download = CreateEvent(
+        CapsuleEventKind.TaskProgress,
+        "download",
+        "下载") with
+    {
+        EventId = "probe:batch-download",
+        Title = "旧下载状态",
+        Progress = 0.1,
+        CreatedAt = createdAt.AddSeconds(-2)
+    };
+    var updatedDownload = download with
+    {
+        Title = "最新下载状态",
+        Progress = 0.65,
+        CreatedAt = createdAt
+    };
+    var timer = CreateEvent(
+        CapsuleEventKind.Timer,
+        "timer",
+        "计时器") with
+    {
+        EventId = "probe:batch-timer",
+        CreatedAt = createdAt.AddSeconds(-1)
+    };
+
+    scheduler.PublishBatch([download, timer, updatedDownload]);
+
+    Assert(
+        presentationChanges == 1,
+        "one batch must trigger at most one presentation update");
+    Assert(
+        scheduler.ActiveEvent?.EventId == updatedDownload.EventId
+        && scheduler.ActiveEvent.Title == "最新下载状态"
+        && scheduler.ActiveEvent.Progress == 0.65,
+        "the last same-ID event in a batch must replace earlier values");
+    Assert(
+        scheduler.SecondaryEvent?.EventId == timer.EventId,
+        "batch merging must keep a real secondary event");
+    Assert(
+        scheduler.Pin(timer.EventId)
+        && scheduler.ActiveEvent?.EventId == timer.EventId,
+        "a secondary event produced by a batch must remain pinnable");
+
+    var changesBeforeReplacement = presentationChanges;
+    var stopwatch = CreateEvent(
+        CapsuleEventKind.Stopwatch,
+        "stopwatch",
+        "秒表") with
+    {
+        EventId = "probe:batch-stopwatch",
+        CreatedAt = createdAt.AddSeconds(1)
+    };
+    scheduler.PublishBatch(
+        [stopwatch],
+        [timer.EventId, updatedDownload.EventId]);
+    Assert(
+        presentationChanges == changesBeforeReplacement + 1
+        && scheduler.ActiveEvent?.EventId == stopwatch.EventId
+        && scheduler.SecondaryEvent is null
+        && scheduler.PinnedEventId is null,
+        "batch removals and replacements must produce one coherent presentation");
+
+    var changesAfterReplacement = presentationChanges;
+    scheduler.PublishBatch([]);
+    Assert(
+        presentationChanges == changesAfterReplacement,
+        "an empty batch must not trigger a presentation update");
+}
+
 void Assert(bool condition, string message)
 {
     if (!condition)
@@ -675,4 +1357,19 @@ static CapsuleEvent CreateEvent(
         EventPrivacyLevel.Full,
         DateTimeOffset.UtcNow,
         null);
+}
+
+internal sealed class ProbeHttpMessageHandler(
+    Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
+    : HttpMessageHandler
+{
+    internal int RequestCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        return Task.FromResult(responseFactory(request));
+    }
 }

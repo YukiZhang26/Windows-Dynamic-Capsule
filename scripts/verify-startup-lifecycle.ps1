@@ -11,6 +11,10 @@ $startupRegistrationPath = Join-Path $repositoryRoot (
     "src\DynamicCapsule\Services\StartupRegistrationService.cs")
 $settingsPath = Join-Path $repositoryRoot (
     "src\DynamicCapsule\Models\AppSettings.cs")
+$appPath = Join-Path $repositoryRoot (
+    "src\DynamicCapsule\App.xaml.cs")
+$settingsWindowPath = Join-Path $repositoryRoot (
+    "src\DynamicCapsule\SettingsWindow.xaml.cs")
 $startScriptPath = Join-Path $repositoryRoot (
     "scripts\start-dynamic-capsule.ps1")
 $manifestTemplatePath = Join-Path $repositoryRoot (
@@ -26,6 +30,14 @@ $startupRegistrationSource = Get-Content `
     -Encoding utf8
 $settingsSource = Get-Content `
     -LiteralPath $settingsPath `
+    -Raw `
+    -Encoding utf8
+$appSource = Get-Content `
+    -LiteralPath $appPath `
+    -Raw `
+    -Encoding utf8
+$settingsWindowSource = Get-Content `
+    -LiteralPath $settingsWindowPath `
     -Raw `
     -Encoding utf8
 $startScriptSource = Get-Content `
@@ -84,6 +96,25 @@ $checks = @(
         Passed =
             $settingsSource.Contains("CurrentSchemaVersion = 3") -and
             $settingsSource.Contains("StartWithWindows")
+    },
+    [PSCustomObject]@{
+        Name = "Settings window is modeless and single-instance"
+        Passed =
+            $appSource.Contains("if (_settingsWindow is not null)") -and
+            $appSource.Contains("settingsWindow.Show();") -and
+            $appSource.Contains("await closed.Task;") -and
+            -not $appSource.Contains("settingsWindow.ShowDialog()")
+    },
+    [PSCustomObject]@{
+        Name = "Settings save and cancel close cleanly"
+        Passed =
+            $settingsWindowSource.Contains("SavedSettings = null;") -and
+            $settingsWindowSource.Contains("Close();") -and
+            -not $settingsWindowSource.Contains("DialogResult =")
+    },
+    [PSCustomObject]@{
+        Name = "Utility windows avoid transparent owner composition"
+        Passed = -not $appSource.Contains("Owner = _capsuleWindow")
     },
     [PSCustomObject]@{
         Name = "Launcher reports argument forwarding"

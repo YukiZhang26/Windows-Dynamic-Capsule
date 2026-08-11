@@ -51,6 +51,8 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource LabelStyle}" Text="进程与实例" />
                 <TextBlock x:Name="ProcessText" FontSize="12" />
+                <TextBlock Style="{StaticResource LabelStyle}" Text="包与版本" />
+                <TextBlock x:Name="PackageText" FontSize="12" />
                 <TextBlock Style="{StaticResource LabelStyle}" Text="媒体" />
                 <TextBlock x:Name="MediaText" FontSize="12" />
                 <TextBlock Style="{StaticResource LabelStyle}" Text="Windows 通知" />

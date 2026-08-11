@@ -15,9 +15,12 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
 
 - A non-activating, always-on-top WPF capsule window;
 - System media sessions, artwork, playback controls, and seekable progress;
-- Line-synchronized lyrics retrieved through LRCLIB;
+- Line-synchronized lyrics through LRCLIB, with an optional QQ Music fallback
+  and a 30-day local cache;
 - User-authorized Windows notification summaries with an independent Do Not
   Disturb mode;
+- Brief local events for paired Bluetooth-device connections and Wi-Fi
+  profile changes;
 - Local tasks, browser downloads, countdown timers, stopwatches, and Windows
   Clock status;
 - Primary and secondary multi-task regions, multi-monitor support, high-DPI
@@ -29,6 +32,19 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
 - Windows 10 version 2004 (build 19041) or later;
 - .NET SDK `10.0.302`;
 - PowerShell 5.1 or later.
+
+## Install and remove
+
+The current public preview is portable: download the ZIP from GitHub Releases,
+extract the complete folder, and run `WindowsDynamicCapsule.exe`. To remove it,
+choose **Exit completely** from the capsule menu and delete the extracted
+folder. Settings and the optional lyrics cache can be removed by deleting
+`%LOCALAPPDATA%\WindowsDynamicCapsule`.
+
+When the signed Microsoft Store/MSIX edition becomes available, install it only
+from the Store or a verified release link. Remove that edition through
+**Windows Settings > Apps > Installed apps > Windows Dynamic Capsule >
+Uninstall**. Never disable Windows security or install an unknown certificate.
 
 ## Build locally
 
@@ -61,6 +77,10 @@ identity. The file is excluded by `.gitignore`. See
 [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) for the complete
 workflow.
 
+Public binaries follow the separate Store and direct-download rules in the
+[Code signing policy](CODE_SIGNING.md). Unsigned Store candidates and locally
+test-signed packages are never public release assets.
+
 The Microsoft Store product identity associated with this repository remains
 under the maintainer's control. Forking, modifying, or rebuilding the source
 does not grant permission to update that Store product. Third-party releases
@@ -68,8 +88,8 @@ must use their own app name, package identity, publisher, and signing material.
 
 ## Privacy and security
 
-See [PRIVACY.md](PRIVACY.md) for how notifications, local tasks, and settings
-are handled. Report security issues privately by following
+See [PRIVACY.en.md](PRIVACY.en.md) for how notifications, connectivity events,
+local tasks, and settings are handled. Report security issues privately by following
 [SECURITY.md](SECURITY.md). Public screenshots and sample data must not contain
 private notifications, access tokens, or unauthorized lyrics, album artwork,
 or wallpapers.

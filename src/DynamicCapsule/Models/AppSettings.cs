@@ -14,6 +14,12 @@ internal enum EventPrivacyLevel
     IconOnly
 }
 
+internal enum LyricsFallbackProvider
+{
+    None,
+    QqMusic
+}
+
 internal sealed record AppSettings
 {
     internal const int CurrentSchemaVersion = 3;
@@ -31,6 +37,8 @@ internal sealed record AppSettings
     public bool StartWithWindows { get; init; }
     public EventPrivacyLevel PrivacyLevel { get; init; } =
         EventPrivacyLevel.Summary;
+    public LyricsFallbackProvider LyricsFallbackProvider { get; init; } =
+        LyricsFallbackProvider.QqMusic;
     public string[] NotificationAllowList { get; init; } = [];
     public string[] NotificationBlockList { get; init; } = [];
 
@@ -45,6 +53,9 @@ internal sealed record AppSettings
         var privacyLevel = Enum.IsDefined(PrivacyLevel)
             ? PrivacyLevel
             : EventPrivacyLevel.Summary;
+        var lyricsFallbackProvider = Enum.IsDefined(LyricsFallbackProvider)
+            ? LyricsFallbackProvider
+            : LyricsFallbackProvider.QqMusic;
 
         return this with
         {
@@ -52,6 +63,7 @@ internal sealed record AppSettings
             MonitorTarget = monitorTarget,
             TopGap = topGap,
             PrivacyLevel = privacyLevel,
+            LyricsFallbackProvider = lyricsFallbackProvider,
             NotificationAllowList = NormalizeSourceList(NotificationAllowList),
             NotificationBlockList = NormalizeSourceList(NotificationBlockList)
         };

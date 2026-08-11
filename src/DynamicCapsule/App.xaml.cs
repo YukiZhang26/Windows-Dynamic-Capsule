@@ -205,6 +205,16 @@ public partial class App : System.Windows.Application
 
         if (_settingsWindow is not null)
         {
+            if (_settingsWindow.WindowState == WindowState.Minimized)
+            {
+                _settingsWindow.WindowState = WindowState.Normal;
+            }
+
+            if (!_settingsWindow.IsVisible)
+            {
+                _settingsWindow.Show();
+            }
+
             _settingsWindow.Activate();
             return;
         }
@@ -224,17 +234,20 @@ public partial class App : System.Windows.Application
                 ?? "正在检查通知能力");
         settingsWindow.NotificationPreviewRequested +=
             OnNotificationPreviewRequested;
-        if (_capsuleWindow is not null)
-        {
-            settingsWindow.Owner = _capsuleWindow;
-        }
 
         _settingsWindow = settingsWindow;
+        var closed = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler closedHandler = (_, _) => closed.TrySetResult(true);
+        settingsWindow.Closed += closedHandler;
 
         try
         {
-            if (settingsWindow.ShowDialog() != true
-                || settingsWindow.SavedSettings is not { } savedSettings)
+            settingsWindow.Show();
+            settingsWindow.Activate();
+            await closed.Task;
+
+            if (settingsWindow.SavedSettings is not { } savedSettings)
             {
                 return;
             }
@@ -302,6 +315,7 @@ public partial class App : System.Windows.Application
         }
         finally
         {
+            settingsWindow.Closed -= closedHandler;
             settingsWindow.NotificationPreviewRequested -=
                 OnNotificationPreviewRequested;
             _settingsWindow = null;
@@ -355,7 +369,6 @@ public partial class App : System.Windows.Application
             _startupStatus,
             _singleInstanceService?.IsPrimaryInstance == true);
         var diagnosticsWindow = new DiagnosticsWindow(snapshot);
-        diagnosticsWindow.Owner = _capsuleWindow;
         diagnosticsWindow.Closed += OnDiagnosticsWindowClosed;
         _diagnosticsWindow = diagnosticsWindow;
         diagnosticsWindow.Show();
@@ -424,6 +437,17 @@ public partial class App : System.Windows.Application
                 argument,
                 "--reset-countdown",
                 StringComparison.OrdinalIgnoreCase));
+        var shouldExit = arguments.Any(argument =>
+            string.Equals(
+                argument,
+                "--exit",
+                StringComparison.OrdinalIgnoreCase));
+        if (shouldExit)
+        {
+            RequestExit();
+            return;
+        }
+
         if (shouldToggleCapsule)
         {
             _capsuleWindow?.ToggleExpandedFromAccessibility();
@@ -450,7 +474,8 @@ public partial class App : System.Windows.Application
                 && !shouldShowDiagnostics
                 && !shouldToggleCapsule
                 && !shouldToggleCountdown
-                && !shouldResetCountdown))
+                && !shouldResetCountdown
+                && !shouldExit))
         {
             OnSettingsRequested();
         }
@@ -478,10 +503,6 @@ public partial class App : System.Windows.Application
         }
 
         var timerWindow = new TimerWindow(_accessibilityPreferences);
-        if (_capsuleWindow is not null)
-        {
-            timerWindow.Owner = _capsuleWindow;
-        }
 
         _timerWindow = timerWindow;
         try

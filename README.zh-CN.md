@@ -12,8 +12,9 @@ Windows Dynamic Capsule 是一个面向 Windows 10/11 的开源桌面状态胶�
 
 - 无焦点、置顶的 WPF 胶囊窗口；
 - 系统媒体会话、封面、播放控制与可拖动播放进度；
-- 通过 LRCLIB 查询逐行同步歌词；
+- 通过 LRCLIB 查询逐行同步歌词，可选 QQ 音乐备用来源并提供 30 天本地缓存；
 - 经用户授权显示 Windows 通知摘要，并提供独立勿扰模式；
+- 短暂显示已配对蓝牙设备连接状态和 Wi-Fi 配置切换；
 - 本地任务、浏览器下载、倒计时、秒表及 Windows 时钟状态；
 - 多任务主次分区、多显示器、高 DPI、全屏隐藏与顶部收纳；
 - 仅限当前用户的 Named Pipe 任务事件接口。
@@ -23,6 +24,17 @@ Windows Dynamic Capsule 是一个面向 Windows 10/11 的开源桌面状态胶�
 - Windows 10 2004（build 19041）或更高版本；
 - .NET SDK `10.0.302`；
 - PowerShell 5.1 或更高版本。
+
+## 安装与卸载
+
+当前公开预览版为便携版：从 GitHub Releases 下载 ZIP，完整解压后运行
+`WindowsDynamicCapsule.exe`。卸载时先在胶囊菜单中选择“彻底退出”，再删除
+解压目录；如需同时清除设置和可选歌词缓存，可删除
+`%LOCALAPPDATA%\WindowsDynamicCapsule`。
+
+后续可信签名的 Microsoft Store/MSIX 版本只能从 Store 或经过验证的 Release
+链接安装，并通过“Windows 设置 > 应用 > 已安装的应用 > Windows Dynamic
+Capsule > 卸载”移除。不要关闭 Windows 安全功能或安装来源不明的证书。
 
 ## 本地构建
 
@@ -53,13 +65,16 @@ Copy-Item `
 `.gitignore` 排除。详细流程见
 [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md)。
 
+公开二进制必须遵守[代码签名策略](CODE_SIGNING.md)中相互独立的 Store 与
+直装渠道规则；未签名的 Store 候选包和本机测试签名包不会作为公开附件。
+
 本仓库对应的 Microsoft Store 产品身份由项目维护者控制。Fork、修改或
 重新构建源码不会获得更新该 Store 产品的权限；第三方发布时必须使用自己的
 应用名称、包身份、Publisher 和签名材料。
 
 ## 隐私与安全
 
-通知内容、本地任务和用户设置的处理方式见 [PRIVACY.md](PRIVACY.md)。
+通知内容、连接事件、本地任务和用户设置的处理方式见 [PRIVACY.md](PRIVACY.md)。
 安全问题请按照 [SECURITY.md](SECURITY.md) 私下报告。公开截图和示例数据
 不得包含私人通知、访问令牌、未经授权的歌词、专辑封面或壁纸。
 

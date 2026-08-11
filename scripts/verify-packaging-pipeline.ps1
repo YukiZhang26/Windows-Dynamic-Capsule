@@ -21,9 +21,16 @@ $toolProject = Read-Source (
 $commonScript = Read-Source "packaging\Packaging.Common.ps1"
 $buildScript = Read-Source "scripts\build-msix.ps1"
 $verifyScript = Read-Source "scripts\verify-msix.ps1"
+$directReleaseVerifyScript = Read-Source (
+    "scripts\verify-direct-release-msix.ps1")
 $storeBuildScript = Read-Source "scripts\build-store-msix.ps1"
+$localInstallScript = Read-Source "scripts\install-local-test-msix.ps1"
+$prepareWackScript = Read-Source "scripts\prepare-wack.ps1"
+$wackScript = Read-Source "scripts\run-wack.ps1"
 $storeConfigTemplate = Read-Source (
     "packaging\store-submission.template.json")
+$signPathArtifactConfiguration = Read-Source (
+    "packaging\signpath-artifact-configuration.xml")
 
 $signExeIndex = $buildScript.IndexOf(
     '"WindowsDynamicCapsule.exe"')
@@ -66,6 +73,31 @@ $checks = @(
                 "PASTE_PACKAGE_PUBLISHER_FROM_PARTNER_CENTER")
     },
     [PSCustomObject]@{
+        Name = "Store local test builds retain production identity"
+        Passed =
+            $storeBuildScript.Contains(
+                "LocalTestCertificateThumbprint") -and
+            $storeBuildScript.Contains(
+                "LocalTestingOnly") -and
+            $storeBuildScript.Contains(
+                "do not upload it to Partner ") -and
+            $storeBuildScript.Contains(
+                '$metadata.identityName -ne $identityName')
+    },
+    [PSCustomObject]@{
+        Name = "Local install verifies identity, version, and settings"
+        Passed =
+            $localInstallScript.Contains("MSIX SHA-256 does not match") -and
+            $localInstallScript.Contains("Package downgrade is not allowed") -and
+            $localInstallScript.Contains("AllowSameVersionReinstall") -and
+            $localInstallScript.Contains("PreflightOnly") -and
+            $localInstallScript.Contains("systemStateModified") -and
+            $localInstallScript.Contains("-RequireSignature") -and
+            $localInstallScript.Contains("settingsHashBefore") -and
+            $localInstallScript.Contains("settingsPreserved") -and
+            $localInstallScript.Contains("certificateRolledBack")
+    },
+    [PSCustomObject]@{
         Name = "Windows SDK tools are version pinned"
         Passed =
             $toolProject.Contains(
@@ -84,6 +116,16 @@ $checks = @(
             $buildScript.Contains(
                 '$selfContained = -not $FrameworkDependent') -and
             $buildScript.Contains("--self-contained")
+    },
+    [PSCustomObject]@{
+        Name = "Store candidates require clean Git provenance"
+        Passed =
+            $buildScript.Contains("RequireCleanRepository") -and
+            $buildScript.Contains("status --porcelain") -and
+            $buildScript.Contains("sourceCommit") -and
+            $buildScript.Contains("sourceDirty") -and
+            $storeBuildScript.Contains(
+                "RequireCleanRepository = `$true")
     },
     [PSCustomObject]@{
         Name = "Publisher must exactly match certificate subject"
@@ -112,11 +154,117 @@ $checks = @(
             $commonScript.Contains("1.3.6.1.5.5.7.3.3")
     },
     [PSCustomObject]@{
+        Name = "Development signing still verifies signer, type, and timestamp"
+        Passed =
+            $buildScript.Contains("Assert-CodeSignature") -and
+            $buildScript.Contains("ExpectedThumbprint") -and
+            $buildScript.Contains('SignatureType -ne "Authenticode"') -and
+            $buildScript.Contains("TimeStamperCertificate") -and
+            $buildScript.Contains(
+                '$signature.Status -eq "UnknownError"') -and
+            $buildScript.Contains("X509ChainStatusFlags]::UntrustedRoot") -and
+            $buildScript.Contains('$chainStatuses.Count -eq 1') -and
+            $buildScript.Contains(
+                "AllowUntrustedDevelopmentCertificate") -and
+            $buildScript.Contains(
+                'if (-not $AllowUntrustedDevelopmentCertificate)')
+    },
+    [PSCustomObject]@{
         Name = "MSIX verification checks block map and signature"
         Passed =
             $verifyScript.Contains("appxblockmap.xml") -and
             $verifyScript.Contains("appxsignature.p7x") -and
             $verifyScript.Contains("Get-AuthenticodeSignature")
+    },
+    [PSCustomObject]@{
+        Name = "Direct release rejects untrusted or mismatched signing"
+        Passed =
+            $directReleaseVerifyScript.Contains(
+                "PublicReleaseEligible") -and
+            $directReleaseVerifyScript.Contains(
+                "Self-signed certificates are not permitted") -and
+            $directReleaseVerifyScript.Contains(
+                "X509RevocationMode]::Online") -and
+            $directReleaseVerifyScript.Contains(
+                "TimeStamperCertificate") -and
+            $directReleaseVerifyScript.Contains(
+                "TimestampChainRoot") -and
+            $directReleaseVerifyScript.Contains(
+                '"WindowsDynamicCapsule.exe"') -and
+            $directReleaseVerifyScript.Contains(
+                '"WindowsDynamicCapsule.dll"') -and
+            $directReleaseVerifyScript.Contains(
+                "Assert-InnerProjectBinary") -and
+            $directReleaseVerifyScript.Contains(
+                "ProductVersion") -and
+            $directReleaseVerifyScript.Contains(
+                "FileVersion") -and
+            $directReleaseVerifyScript.Contains(
+                '$signer.Subject -cne $ExpectedPublisher')
+    },
+    [PSCustomObject]@{
+        Name = "SignPath deep signing is limited to project-owned binaries"
+        Passed =
+            $signPathArtifactConfiguration.Contains("<zip-file>") -and
+            $signPathArtifactConfiguration.Contains("<parameters>") -and
+            $signPathArtifactConfiguration.Contains(
+                'name="productVersion"') -and
+            $signPathArtifactConfiguration.Contains(
+                'name="msixVersion"') -and
+            $signPathArtifactConfiguration.Contains("<msix-file") -and
+            $signPathArtifactConfiguration.Contains(
+                'path="WindowsDynamicCapsule.exe"') -and
+            $signPathArtifactConfiguration.Contains(
+                'path="WindowsDynamicCapsule.dll"') -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'product-name="Windows Dynamic Capsule"')
+            ).Count -eq 2 -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'product-version="\$\{productVersion\}"')
+            ).Count -eq 2 -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    'file-version="\$\{msixVersion\}"')
+            ).Count -eq 2 -and
+            -not $signPathArtifactConfiguration.Contains(
+                '<pe-file-set>') -and
+            @(
+                [regex]::Matches(
+                    $signPathArtifactConfiguration,
+                    '<authenticode-sign\s*/>')
+            ).Count -eq 3
+    },
+    [PSCustomObject]@{
+        Name = "WACK preparation pins and verifies the Microsoft installer"
+        Passed =
+            $prepareWackScript.Contains("10.0.28000.2526") -and
+            $prepareWackScript.Contains(
+                "02988EA51EAB2A2DB53E19735E51C97A6D221ADA74B9174FA0868870B9403BA0") -and
+            $prepareWackScript.Contains("Get-AuthenticodeSignature") -and
+            $prepareWackScript.Contains("Microsoft Corporation") -and
+            $prepareWackScript.Contains("LaunchInstaller") -and
+            -not $prepareWackScript.Contains("/quiet")
+    },
+    [PSCustomObject]@{
+        Name = "WACK runner validates Store packages or installed identity"
+        Passed =
+            $wackScript.Contains(
+                "Windows App Certification Kit must run from an elevated") -and
+            $wackScript.Contains("appcert.exe") -and
+            $wackScript.Contains("Installed Roots") -and
+            $wackScript.Contains("Get-AuthenticodeSignature") -and
+            $wackScript.Contains("-appxpackagepath") -and
+            $wackScript.Contains("-packagefullname") -and
+            $wackScript.Contains("-reportoutputpath") -and
+            $wackScript.Contains("OVERALL_RESULT") -and
+            $wackScript.Contains("PARTIAL_RUN") -and
+            $wackScript.Contains("TestsFailed") -and
+            $wackScript.Contains("reset")
     }
 )
 

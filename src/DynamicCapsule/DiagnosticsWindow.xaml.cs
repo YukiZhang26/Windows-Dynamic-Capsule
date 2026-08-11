@@ -12,6 +12,7 @@ public partial class DiagnosticsWindow : Window
     {
         InitializeComponent();
         ProcessText.Text = snapshot.Process;
+        PackageText.Text = snapshot.Package;
         MediaText.Text = snapshot.Media;
         NotificationText.Text = snapshot.Notifications;
         TaskPipeText.Text = snapshot.TaskPipe;
@@ -61,6 +62,7 @@ public partial class DiagnosticsWindow : Window
     {
         var summary = new StringBuilder();
         AppendSummary(summary, "进程与实例", ProcessText.Text);
+        AppendSummary(summary, "包与版本", PackageText.Text);
         AppendSummary(summary, "媒体", MediaText.Text);
         AppendSummary(summary, "Windows 通知", NotificationText.Text);
         AppendSummary(summary, "本地任务管道", TaskPipeText.Text);

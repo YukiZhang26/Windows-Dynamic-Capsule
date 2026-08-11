@@ -11,5 +11,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WindowsDynamicCapsule</AssemblyName>
     <RootNamespace>DynamicCapsule</RootNamespace>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>Windows Dynamic Capsule</Product>
+    <Company>Yuki Zhang</Company>
+    <Description>A lightweight real-time task capsule for Windows.</Description>
   </PropertyGroup>
 </Project>

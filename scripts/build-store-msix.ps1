@@ -2,6 +2,11 @@
 param(
     [string] $ConfigPath,
 
+    [ValidatePattern('^[0-9A-Fa-f]{40}$')]
+    [string] $LocalTestCertificateThumbprint,
+
+    [switch] $AllowUntrustedDevelopmentCertificate,
+
     [switch] $SkipRestore
 )
 
@@ -58,6 +63,18 @@ $config = Get-Content `
     -Encoding utf8 |
     ConvertFrom-Json
 
+$releaseVersionPath = Join-Path $PSScriptRoot (
+    "..\packaging\release-version.json")
+$releaseVersion = Get-Content `
+    -LiteralPath $releaseVersionPath `
+    -Raw `
+    -Encoding utf8 |
+    ConvertFrom-Json
+if ($releaseVersion.schemaVersion -ne 1 -or
+    [string]::IsNullOrWhiteSpace($releaseVersion.msixVersion)) {
+    throw "Release version contract is invalid."
+}
+
 $identityName = Get-RequiredConfigString `
     -Config $config `
     -Name "identityName"
@@ -78,6 +95,11 @@ if ($identityName -notmatch '^[A-Za-z0-9.-]{3,50}$') {
 if ($packageVersion -notmatch '^\d{1,5}(\.\d{1,5}){3}$') {
     throw "packageVersion must contain four numeric parts."
 }
+if ($packageVersion -cne [string]$releaseVersion.msixVersion) {
+    throw (
+        "Store packageVersion must match packaging\release-version.json. " +
+        "Expected '$($releaseVersion.msixVersion)', got '$packageVersion'.")
+}
 
 $versionParts = @($packageVersion.Split('.') | ForEach-Object {
     [int]$_
@@ -94,6 +116,20 @@ $buildParameters = @{
     IdentityName = $identityName
     Publisher = $publisher
     PublisherDisplayName = $publisherDisplayName
+    RequireCleanRepository = $true
+}
+if (-not [string]::IsNullOrWhiteSpace(
+        $LocalTestCertificateThumbprint)) {
+    $buildParameters.CertificateThumbprint =
+        $LocalTestCertificateThumbprint
+    if ($AllowUntrustedDevelopmentCertificate) {
+        $buildParameters.AllowUntrustedDevelopmentCertificate = $true
+    }
+}
+elseif ($AllowUntrustedDevelopmentCertificate) {
+    throw (
+        "AllowUntrustedDevelopmentCertificate requires " +
+        "LocalTestCertificateThumbprint.")
 }
 if ($SkipRestore) {
     $buildParameters.SkipRestore = $true
@@ -102,9 +138,17 @@ if ($SkipRestore) {
 & $buildScript @buildParameters
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$isLocalTestBuild = -not [string]::IsNullOrWhiteSpace(
+    $LocalTestCertificateThumbprint)
+$packageSuffix = if ($isLocalTestBuild) {
+    ".msix"
+}
+else {
+    ".unsigned.msix"
+}
 $metadataPath = Join-Path $repositoryRoot (
-    "artifacts\msix\WindowsDynamicCapsule_{0}_x64.unsigned.msix.metadata.json" `
-        -f $packageVersion)
+    "artifacts\msix\WindowsDynamicCapsule_{0}_x64{1}.metadata.json" `
+        -f $packageVersion, $packageSuffix)
 $metadata = Get-Content `
     -LiteralPath $metadataPath `
     -Raw `
@@ -114,8 +158,15 @@ $metadata = Get-Content `
 if (($metadata.identityName -ne $identityName) -or
     ($metadata.publisher -ne $publisher) -or
     ($metadata.packageVersion -ne $packageVersion) -or
-    ($metadata.signed -ne $false)) {
+    ($metadata.signed -ne $isLocalTestBuild)) {
     throw "Generated Store MSIX metadata does not match the config."
+}
+
+if ($isLocalTestBuild) {
+    Write-Warning (
+        "This package uses a local test certificate. It is only for " +
+        "installation and upgrade testing; do not upload it to Partner " +
+        "Center or publish it as a GitHub Release.")
 }
 
 [PSCustomObject]@{
@@ -126,5 +177,6 @@ if (($metadata.identityName -ne $identityName) -or
     Publisher = $metadata.publisher
     Version = $metadata.packageVersion
     Signed = $metadata.signed
-    StoreSigningRequired = $true
+    StoreSigningRequired = -not $isLocalTestBuild
+    LocalTestingOnly = $isLocalTestBuild
 }

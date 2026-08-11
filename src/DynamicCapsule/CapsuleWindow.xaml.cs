@@ -2,6 +2,7 @@ using DynamicCapsule.Models;
 using DynamicCapsule.Services;
 using System.IO;
 using System.Runtime.InteropServices;
+using Windows.ApplicationModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -186,6 +187,8 @@ public partial class CapsuleWindow : Window
         AccessibilityPreferences accessibilityPreferences)
     {
         _settings = settings.Normalize();
+        _lyricsService.UpdateFallbackProvider(
+            _settings.LyricsFallbackProvider);
         _isTopStashed = _settings.TopStashed;
         _accessibilityPreferences = accessibilityPreferences;
         InitializeComponent();
@@ -219,10 +222,8 @@ public partial class CapsuleWindow : Window
         _countdownTimerService.StatusChanged += OnCountdownStatusChanged;
         _stopwatchService.EventChanged += OnStopwatchEventChanged;
         _stopwatchService.StatusChanged += OnStopwatchStatusChanged;
-        _windowsClockTimerService.EventChanged +=
-            OnWindowsClockTimerEventChanged;
-        _windowsClockTimerService.EventRemoved +=
-            OnWindowsClockTimerEventRemoved;
+        _windowsClockTimerService.EventsChanged +=
+            OnWindowsClockTimerEventsChanged;
         _connectivityEventService.EventReceived +=
             OnConnectivityEventReceived;
         _browserDownloadProgressService.EventChanged +=
@@ -326,10 +327,8 @@ public partial class CapsuleWindow : Window
         _stopwatchService.EventChanged -= OnStopwatchEventChanged;
         _stopwatchService.StatusChanged -= OnStopwatchStatusChanged;
         _stopwatchService.Dispose();
-        _windowsClockTimerService.EventChanged -=
-            OnWindowsClockTimerEventChanged;
-        _windowsClockTimerService.EventRemoved -=
-            OnWindowsClockTimerEventRemoved;
+        _windowsClockTimerService.EventsChanged -=
+            OnWindowsClockTimerEventsChanged;
         _windowsClockTimerService.Dispose();
         _connectivityEventService.EventReceived -=
             OnConnectivityEventReceived;
@@ -400,6 +399,8 @@ public partial class CapsuleWindow : Window
         var previouslyAnimated = ShouldAnimate;
         var previousSettings = _settings;
         _settings = settings.Normalize();
+        _lyricsService.UpdateFallbackProvider(
+            _settings.LyricsFallbackProvider);
         var topStashChanged =
             previousSettings.TopStashed != _settings.TopStashed;
         _isTopStashed = _settings.TopStashed;
@@ -646,6 +647,7 @@ public partial class CapsuleWindow : Window
         return new DiagnosticsSnapshot(
             $"PID {Environment.ProcessId} · "
             + (isPrimaryInstance ? "主实例" : "辅助实例"),
+            GetPackageDiagnosticSummary(),
             _mediaStatus,
             _notificationStatus,
             _localTaskStatus,
@@ -654,6 +656,35 @@ public partial class CapsuleWindow : Window
             $"{settingsPath} · Schema {_settings.SchemaVersion}",
             startupStatus.Message,
             _accessibilityPreferences.Summary);
+    }
+
+    private static string GetPackageDiagnosticSummary()
+    {
+        try
+        {
+            var package = Package.Current;
+            var identity = package.Id;
+            var version = identity.Version;
+            return $"MSIX · {identity.Name} · "
+                   + $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision} · "
+                   + $"{identity.Architecture.ToString().ToLowerInvariant()} · "
+                   + $"签名：{package.SignatureKind}";
+        }
+        catch (InvalidOperationException)
+        {
+            return GetUnpackagedDiagnosticSummary();
+        }
+        catch (COMException)
+        {
+            return GetUnpackagedDiagnosticSummary();
+        }
+    }
+
+    private static string GetUnpackagedDiagnosticSummary()
+    {
+        var version = typeof(CapsuleWindow).Assembly.GetName().Version;
+        return $"未打包运行 · 程序集 {version?.ToString() ?? "未知"} · "
+               + "通知读取与 MSIX 登录启动不可用";
     }
 
     private void ApplyVisibilitySuppression()
@@ -2050,14 +2081,17 @@ public partial class CapsuleWindow : Window
         StopwatchStatusChanged?.Invoke(status);
     }
 
-    private void OnWindowsClockTimerEventChanged(CapsuleEvent capsuleEvent)
+    private void OnWindowsClockTimerEventsChanged(
+        IReadOnlyList<CapsuleEvent> capsuleEvents,
+        IReadOnlyList<string> removedEventIds)
     {
-        PublishWithPolicy(capsuleEvent);
-    }
-
-    private void OnWindowsClockTimerEventRemoved(string eventId)
-    {
-        _eventScheduler.Remove(eventId);
+        var allowedEvents = capsuleEvents
+            .Select(capsuleEvent =>
+                _eventPolicyEngine.Evaluate(capsuleEvent, _settings).CapsuleEvent)
+            .Where(capsuleEvent => capsuleEvent is not null)
+            .Select(capsuleEvent => capsuleEvent!)
+            .ToArray();
+        _eventScheduler.PublishBatch(allowedEvents, removedEventIds);
     }
 
     private void OnConnectivityEventReceived(CapsuleEvent capsuleEvent)

@@ -4,6 +4,10 @@
 Store 完成认证后会重新签名安装包，因此不需要在启用 Smart App
 Control 的电脑上安装自签名根证书或关闭安全策略。
 
+Store 与 GitHub 直装包的 Publisher 和升级链必须分开管理，详细门禁见
+[../CODE_SIGNING.md](../CODE_SIGNING.md)。Partner Center 上传候选包不能作为
+GitHub Release 附件。
+
 ## 当前准备状态
 
 - [x] Release、x64、自包含 MSIX 构建。
@@ -15,8 +19,12 @@ Control 的电脑上安装自签名根证书或关闭安全策略。
 - [x] 预留应用名称 `Windows Dynamic Capsule`。
 - [x] 从 Partner Center 复制包身份。
 - [x] 生成最终 Store 身份 MSIX。
-- [ ] 准备至少一张不含第三方版权素材的应用截图。
-- [ ] 发布隐私政策并填写公开 URL。
+- [x] 使用 WACK `10.0.28000.2526` 完成最终候选包测试；报告为
+      `OVERALL_RESULT=PASS`、`PARTIAL_RUN=FALSE`，23 项通过，另有 1 项
+      不改变总体结果的可选静态分析提示。
+- [x] 准备至少一张不含第三方版权素材的应用截图；本地候选为
+      `artifacts/store/store-task-combination-1366x768-v2.png`（1366×768）。
+- [ ] 合并发布 PR 后验证三语隐私政策 URL，并填写到对应 Store 页面。
 - [ ] 设置私有受众并提交认证。
 
 正式 Store ID、Package Identity、Publisher、提交包哈希和受众信息仅保存在
@@ -61,7 +69,92 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 中的身份是否与配置完全一致。输出仍标记为 `unsigned.msix`，这是预期
 行为；正式签名由 Microsoft Store 在认证后完成。
 
-## 3. 私有受众
+### 使用正式包身份进行本机升级测试
+
+不要直接调用通用 `build-msix.ps1` 并依赖它的开发默认身份，否则 Windows
+会把测试包安装为另一个并行应用。需要验证 Store 身份的安装和升级时，使用：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-store-msix.ps1 `
+  -LocalTestCertificateThumbprint "<40 位测试证书指纹>"
+```
+
+该模式仍从被忽略的 `store-submission.json` 读取确切身份，并强制检查生成
+包的 Identity、Publisher、版本和签名状态。结果只用于本机安装/升级测试，
+不得上传 Partner Center，也不得作为 GitHub Release 发布。
+
+请求管理员权限前，先以普通用户运行只读预检：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\install-local-test-msix.ps1 `
+  -CertificatePath "<公开测试证书 .cer>" `
+  -PackagePath "<测试签名 .msix>" `
+  -ExpectedThumbprint "<40 位测试证书指纹>" `
+  -ResultPath ".\artifacts\msix\install-preflight.json" `
+  -PreflightOnly
+```
+
+预检不会导入证书、安装包、关闭应用或修改设置。它会校验 SHA-256、时间戳、
+Identity、Publisher、架构和版本关系，并把本次操作标记为 `Install`、`Upgrade`
+或显式允许的 `Repair`。预检通过后，在管理员 PowerShell 中移除
+`-PreflightOnly` 再运行相同命令；正式安装阶段还会要求受信任签名，禁止降级，
+并验证安装前后 `settings.json` 的 SHA-256 保持不变。安装前新导入的测试证书
+若在写入包之前失败，会由脚本精确回滚。
+
+### 运行 Windows App Certification Kit
+
+先下载并验证当前稳定版 Windows SDK 引导程序；此命令不会安装组件：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\prepare-wack.ps1
+```
+
+当前固定版本为 `10.0.28000.2526`。脚本会校验 SHA-256、产品版本和 Microsoft
+Authenticode 签名。确认输出正常并准备进行交互式安装后，再显式执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\prepare-wack.ps1 `
+  -LaunchInstaller
+```
+
+在 Windows SDK Setup 中只选择 **Windows App Certification Kit**，除非确实
+需要其他 SDK 组件。脚本不会静默安装，也不会绕过 UAC。安装完成后，在活动
+用户会话中打开管理员 PowerShell。Store 候选包无需预先安装，也无需导入测试
+证书；WACK 官方支持直接打开 MSIX 并选择相应测试工作流：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run-wack.ps1 `
+  -PackagePath `
+    .\artifacts\msix\WindowsDynamicCapsule_1.0.0.0_x64.unsigned.msix
+```
+
+脚本会从 Windows Kits 注册表自动发现 WACK，因此支持安装到 C 盘或自定义盘符；
+也可通过 `-AppCertPath` 显式指定 `appcert.exe`。它会验证工具的 Microsoft
+Authenticode 签名、重置 WACK 状态、直接测试候选包并把 XML 报告保存到
+`artifacts\wack`。不传 `-PackagePath` 时仍可测试已安装的
+`YukiZhang.WindowsDynamicCapsule`。缺少管理员权限、WACK、目标包或报告时会
+失败；脚本还会检查报告的 `OVERALL_RESULT`、`PARTIAL_RUN` 和逐项测试统计，
+不会把未执行或未完整执行的认证误报为通过。即使总体通过，也应检查输出中的
+`TestsFailed` 和 `FailedTests`：WACK 可能把个别可选静态分析项记为失败，但不
+改变总体认证结果。命令行流程依据
+[Microsoft 的 WACK 文档](https://learn.microsoft.com/windows/uwp/debug-test-perf/windows-app-certification-kit)。
+
+## 3. 隐私政策 URL
+
+当前发布 PR 合并到 `main` 后，分别验证并使用以下地址：
+
+- English: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.en.md>
+- 简体中文: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.md>
+- 繁體中文: <https://github.com/YukiZhang26/Windows-Dynamic-Capsule/blob/main/PRIVACY.zh-TW.md>
+
+这些页面必须保持公开且无需登录；提交前用匿名浏览器再次验证 HTTP 200。
+
+## 4. 私有受众
 
 在提交的 **Pricing and availability / 定价和可用性** 页面：
 
@@ -74,7 +167,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 私有受众必须在首次公开发布前设置。之后可以转为公开受众，但已公开
 的产品不能再改回私有。
 
-## 4. 权限用途说明草稿
+## 5. 权限用途说明草稿
 
 ### runFullTrust
 
@@ -90,13 +183,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 > 或上传；用户可以设置允许列表、屏蔽列表及 summary、masked、
 > iconOnly 等隐私级别，也可随时在 Windows 设置中撤销权限。
 
+### bluetooth
+
+> 应用只监听当前用户已配对蓝牙设备的显示名称和连接状态，用于在设备连接
+> 或断开时显示约 5 秒的本机胶囊提醒。应用不发起配对、不控制设备，不持久化
+> 或上传设备名称和连接状态。
+
 ### 网络访问
 
 > 播放媒体时，应用可把歌曲标题、歌手、专辑名称和时长发送到
 > `https://lrclib.net` 查询同步歌词。应用不创建账户、不上传通知内容，
-> 也不包含广告或遥测。
+> 蓝牙设备名称、Wi-Fi 配置名称和 SSID 也不会上传；应用不包含广告或遥测。
 
-## 5. 商店文案草稿
+## 6. 商店文案草稿
 
 ### 简短说明
 
@@ -109,6 +208,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 - 媒体封面、播放控制和逐行同步歌词。
 - 经授权显示 Windows 通知摘要。
 - 本机任务进度和倒计时提醒。
+- 蓝牙设备连接状态和 Wi-Fi 切换提醒。
 - 自动避让全屏应用并支持多显示器。
 - 通知来源过滤、勿扰模式和四级隐私显示。
 - 高对比度、减少动画和键盘操作支持。
@@ -118,10 +218,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 `dynamic capsule`、`media controls`、`lyrics`、`notifications`、
 `timer`、`productivity`
 
-## 6. 提交前不得遗漏
+## 7. 提交前不得遗漏
 
 - 将 `PRIVACY.md` 中的联系邮箱占位符替换为真实地址。
 - 把隐私政策发布到无需登录即可访问的 HTTPS 页面。
 - 截图不能包含他人的私人通知、邮箱、令牌或未经授权的壁纸和专辑图。
-- 首次提交使用 `0.1.0.0`；后续每次提交必须提高版本号。
+- 当前 1.0 首次提交使用 `1.0.0.0`；后续每次提交必须提高版本号，并同步更新
+  `packaging/release-version.json`。
 - 上传包前再次执行 `verify-msix.ps1`，但不要要求本地签名。
