@@ -19,6 +19,7 @@ packaging/store-submission.json
 *.pem
 
 # Local environment and generated packages
+src/DynamicCapsule/Assets/Ai/*.png
 .env
 .env.*
 !.env.example

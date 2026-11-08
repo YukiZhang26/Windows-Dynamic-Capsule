@@ -496,28 +496,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        if (_timerWindow is not null)
-        {
-            _timerWindow.Activate();
-            return;
-        }
-
-        var timerWindow = new TimerWindow(_accessibilityPreferences);
-
-        _timerWindow = timerWindow;
-        try
-        {
-            if (timerWindow.ShowDialog() == true)
-            {
-                _capsuleWindow?.StartCountdown(
-                    timerWindow.Duration,
-                    timerWindow.TimerTitle);
-            }
-        }
-        finally
-        {
-            _timerWindow = null;
-        }
+        _capsuleWindow?.ShowTimerEditor();
     }
 
     private void OnCountdownPauseResumeRequested()

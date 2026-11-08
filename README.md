@@ -13,6 +13,10 @@ supports full-screen hiding, a manual top tuck-away mode, and privacy controls.
 
 ## Features
 
+**Source preview (not yet in the downloadable release):** The tuck-away strip shows music or video progress alongside a countdown. The expanded player includes a spectrum driven by audio from the selected player on supported systems. Media stays in the main region when an AI task starts.
+
+AI monitoring is off by default. Enable it under **Settings → Notifications & Focus**. The activity card groups running and completed tasks. Browser detection observes the visible ChatGPT or Doubao page, not background tabs; desktop Doubao detection is experimental and depends on exposed controls. Codex activity requires the optional [local hook](scripts/codex-activity-hook.ps1) to be configured and trusted separately. Public builds use generic source icons.
+
 - A non-activating, always-on-top WPF capsule window;
 - System media sessions, artwork, playback controls, and seekable progress;
 - Line-synchronized lyrics through LRCLIB, with an optional QQ Music fallback

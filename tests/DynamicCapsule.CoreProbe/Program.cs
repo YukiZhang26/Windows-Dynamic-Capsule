@@ -5,6 +5,139 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Windows.Automation;
 
+if (args.Contains("--video-progress"))
+{
+    if (!MediaSessionService.IsVideoPlayback(Windows.Media.MediaPlaybackType.Video, "browser")
+        || !MediaSessionService.IsVideoPlayback(null, "com.bilibili.bilibiliPC")
+        || MediaSessionService.IsVideoPlayback(Windows.Media.MediaPlaybackType.Music, "com.bilibili.bilibiliPC")
+        || MediaSessionService.IsVideoPlayback(null, "browser"))
+        throw new Exception("Incorrect stash media classification");
+    Console.WriteLine("Video, music, Bilibili fallback and unknown browser cases passed.");
+    return 0;
+}
+
+if (args.Contains("--ai-browser-live"))
+{
+    foreach (var name in new[] { "msedge", "chrome", "firefox" })
+    foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+    using (p)
+    {
+        if (p.MainWindowHandle == IntPtr.Zero) continue;
+        var s = AiActivityMonitor.Observe(p.MainWindowHandle, name);
+        Console.WriteLine($"{name}: source={s?.Source ?? "none"}, running={s?.Stop == true}");
+    }
+    return 0;
+}
+
+if (args.Contains("--ai-activity"))
+{
+    var t = new AiActivityMonitor.Tracker();
+    var now = DateTimeOffset.UtcNow;
+    var a = new AiActivityMonitor.Signal("a", "ChatGPT", true, 1, 0);
+    var b = new AiActivityMonitor.Signal("b", "豆包", true, 0, 0);
+    var c = new AiActivityMonitor.Signal("c", "ChatGPT Web", true, 0, 0);
+    if (t.Step([a with { Stop = false }], now).Length != 0) throw new Exception("Idle app created a task");
+    if (t.Step([a,b,c], now).Count(x => x.State == "Running") != 3) throw new Exception("Missing simultaneous tasks");
+    var result = t.Step([a with { Stop = false, Copies = 2 }, b with { Stop = false, Errors = 1 }], now);
+    if (result.Length != 2 || !result.Any(x => x.State == "Completed") || !result.Any(x => x.State == "Error"))
+        throw new Exception("Terminal or missing-window transition incorrect");
+    if (t.Step([], now.AddSeconds(7)).Length != 0) throw new Exception("Expired rows remained");
+    t.Step([a], now);
+    t.Step([a with { Stop = false }], now);
+    if (t.Step([a with { Stop = false }], now.AddSeconds(4)).Length != 0) throw new Exception("Unknown outcome reported");
+    Console.WriteLine("AI activity probe passed: idle, three simultaneous tasks, completion, error, lost window and expiry.");
+    return 0;
+}
+
+if (args.Contains("--audio-spectrum"))
+{
+    var analyzer = new SpectrumAnalyzer();
+    var samples = new float[4096];
+    for (var i = 0; i < 2048; i++)
+    {
+        samples[2 * i] = (float)(0.4 * Math.Sin(2 * Math.PI * 1000 * i / 44100));
+        samples[2 * i + 1] = -samples[2 * i]; // Stereo anti-phase must not cancel.
+    }
+    var bands = analyzer.Push(samples)!;
+    var peak = Array.IndexOf(bands, bands.Max());
+    if (peak is < 7 or > 9 || bands.Max() < 0.5) throw new Exception("FFT frequency/anti-phase check failed.");
+    if (analyzer.Push(new float[4096])!.Any(value => value != 0)) throw new Exception("Silence check failed.");
+    using var capture = new AudioSpectrumService();
+    await capture.SetSourceAsync(args.Contains("--bilibili") ? "com.bilibili.bilibiliPC" : "QQMusic.exe");
+    var max = 0f;
+    for (var i = 0; i < 60; i++) { await Task.Delay(100); max = Math.Max(max, capture.ReadBands().Max()); }
+    Console.WriteLine($"FFT and silence passed. Live status: {capture.Status}; peak={max:F3}");
+    await capture.SetSourceAsync(null);
+    if (capture.ReadBands().Any(value => value != 0)) throw new Exception("Stop did not clear spectrum.");
+    return max > 0 ? 0 : 2;
+}
+
+if (args.Contains("--settings-render"))
+{
+    Exception? renderFailure = null;
+    var renderThread = new Thread(() =>
+    {
+        try
+        {
+            var app = new DynamicCapsule.App();
+            app.InitializeComponent();
+            var panel = new DynamicCapsule.SettingsWindow(new AppSettings(), "本地设置",
+                new AccessibilityPreferences(false, false), NotificationListenerStatus.Allowed,
+                "通知权限已开启。勿扰仅屏蔽消息提醒。");
+            var content = (System.Windows.FrameworkElement)panel.Content;
+            var host = new System.Windows.Controls.Border
+            {
+                Background = (System.Windows.Media.Brush)app.Resources["WindowSurfaceBrush"],
+                Child = null
+            };
+            panel.Content = null;
+            host.Resources = panel.Resources;
+            host.Child = content;
+            host.Measure(new System.Windows.Size(760, 650));
+            host.Arrange(new System.Windows.Rect(0, 0, 760, 650));
+            host.UpdateLayout();
+            panel.EnableAnimationsCheckBox.IsChecked = true;
+            panel.HideInFullscreenCheckBox.IsChecked = false;
+            var knob = (System.Windows.FrameworkElement)panel.HideInFullscreenCheckBox.Template.FindName("Knob", panel.HideInFullscreenCheckBox);
+            var knobMotion = (System.Windows.Media.TranslateTransform)knob.RenderTransform;
+            if (!knobMotion.HasAnimatedProperties) throw new Exception("Switch transition did not start.");
+            panel.ApplyAccessibilityPreferences(new AccessibilityPreferences(false, true));
+            if (knobMotion.HasAnimatedProperties || knobMotion.X != 0) throw new Exception("Reduced motion did not stop switch animation.");
+            panel.HideInFullscreenCheckBox.IsChecked = true;
+            if (knobMotion.X != 18) throw new Exception("Reduced-motion switch has an incorrect resting position.");
+            panel.ApplyAccessibilityPreferences(new AccessibilityPreferences(false, false));
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(760, 650, 96, 96,
+                System.Windows.Media.PixelFormats.Pbgra32);
+            bitmap.Render(host);
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            Directory.CreateDirectory("artifacts/ui");
+            using (var file = File.Create("artifacts/ui/control-panel.png")) encoder.Save(file);
+            for (var tab = 1; tab < 3; tab++)
+            {
+                panel.SettingsTabs.SelectedIndex = tab;
+                host.UpdateLayout();
+                var tabBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(760, 650, 96, 96,
+                    System.Windows.Media.PixelFormats.Pbgra32);
+                tabBitmap.Render(host);
+                var tabEncoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                tabEncoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(tabBitmap));
+                using var tabFile = File.Create($"artifacts/ui/control-panel-{tab}.png");
+                tabEncoder.Save(tabFile);
+            }
+            panel.Close();
+            app.Shutdown();
+        }
+        catch (Exception ex) { renderFailure = ex; }
+    });
+    renderThread.SetApartmentState(ApartmentState.STA);
+    renderThread.Start();
+    renderThread.Join();
+    if (renderFailure is not null) { Console.Error.WriteLine(renderFailure); return 1; }
+    Console.WriteLine("Settings panel rendered.");
+    return 0;
+}
+
 if (args.Any(argument => string.Equals(
         argument,
         "--live-clock",
@@ -77,6 +210,26 @@ var failures = new List<string>();
 var policy = new EventPolicyEngine();
 var notification = CreateEvent(CapsuleEventKind.Notification, "app.id", "邮件");
 var task = CreateEvent(CapsuleEventKind.TaskProgress, "codex", "Codex");
+var quietSettings = new AppSettings { DoNotDisturb = true }.Normalize();
+Assert(!policy.Evaluate(notification, quietSettings).IsAllowed,
+    "do not disturb must block message notifications");
+foreach (var kind in Enum.GetValues<CapsuleEventKind>()
+             .Where(kind => kind != CapsuleEventKind.Notification))
+{
+    Assert(policy.Evaluate(CreateEvent(kind, "system", "activity"), quietSettings).IsAllowed,
+        $"do not disturb must preserve {kind}");
+}
+using (var quietScheduler = new CapsuleEventScheduler())
+{
+    quietScheduler.Publish(task);
+    quietScheduler.Publish(notification);
+    quietScheduler.ApplyPolicy(e => policy.Evaluate(e, quietSettings).CapsuleEvent);
+    Assert(quietScheduler.ActiveEvent?.EventId == task.EventId,
+        "enabling do not disturb must remove notifications and retain tasks");
+    quietScheduler.ApplyPolicy(e => policy.Evaluate(e, new AppSettings()).CapsuleEvent);
+    Assert(quietScheduler.ActiveEvent?.EventId == task.EventId && quietScheduler.SecondaryEvent is null,
+        "disabling do not disturb must not replay suppressed notifications");
+}
 var parsedLyrics = LyricsService.ParseSyncedLyrics(
     "[00:02.29]第一行\n[01:04.48]第二行");
 Assert(
@@ -192,7 +345,32 @@ VerifyPinnedPriority();
 VerifyPrimarySecondaryPresentation();
 VerifyBatchMerge();
 VerifySettingsFallback();
+if (AudioSpectrumService.ResolveProcessName("com.bilibili.bilibiliPC") != "哔哩哔哩"
+    || AudioSpectrumService.ResolveProcessName("QQMusic.exe") != "QQMusic"
+    || AudioSpectrumService.ResolveProcessName("unknown.bilibiliPC") is not null)
+    throw new Exception("Audio process identity mapping regression.");
+{
+    double slow = 0, fast = 0, slowVelocity = 0, fastVelocity = 0;
+    for (var i = 0; i < 30; i++) DynamicCapsule.SpectrumView.Smooth(ref slow, ref slowVelocity, 1, 1.0 / 30);
+    for (var i = 0; i < 144; i++) DynamicCapsule.SpectrumView.Smooth(ref fast, ref fastVelocity, 1, 1.0 / 144);
+    if (Math.Abs(slow - fast) > 0.0001 || slow < 0.99 || slow > 1)
+        throw new Exception("Spectrum smoothing is not frame-rate independent.");
+    for (var i = 0; i < 120; i++) DynamicCapsule.SpectrumView.Smooth(ref fast, ref fastVelocity, 0, 1.0 / 120);
+    if (fast > 0.001 || fast < 0) throw new Exception("Spectrum release failed to settle.");
+}
+if (MediaSessionService.ScoreSession("Games.exe", "index.html#?lang=zh-cn", "", true, true) != -1
+    || MediaSessionService.ScoreSession("QQMusic.exe", "Track", "Artist", true, false)
+       <= MediaSessionService.ScoreSession("Games.exe", "index.html", "", true, true)
+    || MediaSessionService.ScoreSession("QQMusic.exe", "Track", "Artist", false, false)
+       >= MediaSessionService.ScoreSession("msedge.exe", "Video title", "", true, true)
+    || MediaSessionService.ScoreSession("msedge.exe", "Video title", "", true, true) < 0)
+    throw new InvalidOperationException("Media session priority regression.");
+if (new AppSettings { BackgroundTransparency = -10 }.Normalize().BackgroundTransparency != 0
+    || new AppSettings { BackgroundTransparency = 200 }.Normalize().BackgroundTransparency != 80
+    || new AppSettings { BackgroundTransparency = double.NaN }.Normalize().BackgroundTransparency != 20)
+    throw new InvalidOperationException("Background transparency normalization failed.");
 await VerifyPersistentLyricsCacheAsync();
+await VerifyLyricsRecoveryAsync();
 VerifyWindowsClockTimerParsing();
 VerifyWindowsClockStatusText();
 VerifyWindowsClockLaunchTarget();
@@ -232,6 +410,20 @@ int ProbeCapsuleQuickMenu()
                     HighContrast: false,
                     ReduceMotion: true));
             window.CapsuleSurface.Width = 504;
+            foreach (var digits in new[] { window.MediaEventCompactTimeText, window.SecondaryCompactTimeText })
+            {
+                if (digits.Visibility != System.Windows.Visibility.Visible || digits.FontSize >= window.PrimaryCompactTimeText.FontSize)
+                    throw new InvalidOperationException("Secondary time must remain visible and smaller than primary time.");
+                digits.Text = "23:59:59";
+                digits.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+                if (digits.DesiredSize.Width > 82)
+                    throw new InvalidOperationException("Secondary time exceeds its compact lane.");
+            }
+            if (((System.Windows.Media.SolidColorBrush)window.CapsuleSurface.Background).Color.A != 204)
+                throw new InvalidOperationException("Initial background transparency was not applied.");
+            window.ApplySettings(new AppSettings { BackgroundTransparency = 60 });
+            if (((System.Windows.Media.SolidColorBrush)window.CapsuleSurface.Background).Color.A != 102)
+                throw new InvalidOperationException("Saved background transparency was not applied.");
             window.CapsuleSurface.Height = 120;
             window.QuickMenuContent.Visibility =
                 System.Windows.Visibility.Visible;
@@ -296,20 +488,36 @@ int ProbeExpandedMediaLayout()
                 new AccessibilityPreferences(
                     HighContrast: false,
                     ReduceMotion: true));
-            window.CapsuleSurface.Width = 440;
+            typeof(DynamicCapsule.CapsuleWindow).GetField("_isExpanded", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(window, true);
+            window.ApplySettings(new AppSettings().Normalize());
+            window.CapsuleSurface.Width = 470;
+            if (window.TopStashArrowButton.Visibility != System.Windows.Visibility.Collapsed ||
+                window.MediaTopStashArrowButton.Visibility != System.Windows.Visibility.Collapsed)
+                throw new Exception("Expanded music must not show a side collapse button.");
             window.CapsuleSurface.Height = 238;
             window.ExpandedContent.Visibility =
                 System.Windows.Visibility.Visible;
             window.ExpandedContent.Opacity = 1;
             window.CapsuleSurface.Measure(
-                new System.Windows.Size(440, 238));
+                new System.Windows.Size(470, 238));
             window.CapsuleSurface.Arrange(
-                new System.Windows.Rect(0, 0, 440, 238));
+                new System.Windows.Rect(0, 0, 470, 238));
             window.CapsuleSurface.UpdateLayout();
 
             var playButtonOrigin = window.PlayPauseButton.TranslatePoint(
                 new System.Windows.Point(),
                 window.CapsuleSurface);
+            var spectrumOrigin = window.ExpandedSpectrum.TranslatePoint(new System.Windows.Point(), window.MediaProgressHitTarget);
+            var previousCenter = window.PreviousButton.TranslatePoint(new System.Windows.Point(window.PreviousButton.ActualWidth / 2, 0), window.CapsuleSurface).X;
+            var playCenter = window.PlayPauseButton.TranslatePoint(new System.Windows.Point(window.PlayPauseButton.ActualWidth / 2, 0), window.CapsuleSurface).X;
+            var nextCenter = window.NextButton.TranslatePoint(new System.Windows.Point(window.NextButton.ActualWidth / 2, 0), window.CapsuleSurface).X;
+            if (Math.Abs(playCenter - window.CapsuleSurface.ActualWidth / 2) > 0.5
+                || Math.Abs((playCenter - previousCenter) - (nextCenter - playCenter)) > 0.5)
+                throw new Exception("Playback controls are not centered and symmetrical.");
+            if (window.ExpandedSpectrum.IsHitTestVisible
+                || Math.Abs(window.ExpandedSpectrum.ActualWidth - window.MediaProgressHitTarget.ActualWidth) > 0.5
+                || Math.Abs(spectrumOrigin.Y + window.ExpandedSpectrum.ActualHeight - (window.MediaProgressHitTarget.ActualHeight / 2 - 2)) > 0.5)
+                throw new Exception("Spectrum must sit directly above the timeline without intercepting seeking.");
             rendered = window.ExpandedContent.ActualHeight > 190
                        && window.MediaProgressHitTarget.ActualWidth > 250
                        && window.MediaElapsedText.ActualWidth > 0
@@ -320,6 +528,22 @@ int ProbeExpandedMediaLayout()
                        && playButtonOrigin.Y >= 0
                        && playButtonOrigin.Y
                           + window.PlayPauseButton.ActualHeight <= 238;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = window.GetType();
+            type.GetField("_mediaSnapshot", flags)!.SetValue(window, new MediaSnapshot("player", "Player", "Song", "Artist", "", null, true, true, true, true, true,
+                TimeSpan.Zero, TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, null));
+            var ai = new CapsuleEvent("ai:activity-stack", CapsuleEventKind.AiActivity, CapsuleEventPriority.Normal, "ai-monitor", "AI", "Codex", "Running",
+                null, CapsuleTaskState.Running, EventPrivacyLevel.Full, DateTimeOffset.UtcNow, null);
+            void Show(CapsuleEvent? item) => type.GetMethod("ApplyPresentedCapsuleEvents",flags)!.Invoke(window,[item,null]);
+            Show(ai);
+            if (window.ExpandedContent.Visibility != System.Windows.Visibility.Visible) throw new Exception("AI stole expanded media");
+            Show(null);
+            if (window.ExpandedContent.Visibility != System.Windows.Visibility.Visible) throw new Exception("AI expiry collapsed media");
+            type.GetField("_isExpanded", flags)!.SetValue(window,false);
+            Show(ai);
+            Show(ai with { TaskState = CapsuleTaskState.Succeeded, Message = "Completed" });
+            if (window.MediaEventCompactContent.Visibility != System.Windows.Visibility.Visible || window.MediaEventCompactTimeText.Text != "Completed"
+                || window.MediaEventCompactTitleText.Text != "Song") throw new Exception("AI displaced compact media");
         }
         catch (Exception exception)
         {
@@ -927,6 +1151,33 @@ void VerifySettingsFallback()
             Directory.Delete(temporaryDirectory, recursive: true);
         }
     }
+}
+
+async Task VerifyLyricsRecoveryAsync()
+{
+    var cachePath = Path.Combine(Path.GetTempPath(), $"capsule-recovery-{Guid.NewGuid():N}");
+    var snapshot = new MediaSnapshot("test", "test", "Recovery", "Artist", "Album", null,
+        true, true, true, true, true, TimeSpan.Zero, TimeSpan.FromSeconds(180), DateTimeOffset.UtcNow, null);
+    var recovered = false;
+    var handler = new ProbeHttpMessageHandler(request =>
+    {
+        if (!recovered) return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+        var record = """{"trackName":"Recovery","artistName":"Artist","duration":180,"syncedLyrics":"[00:01.00]test"}""";
+        var exact = request.RequestUri!.AbsolutePath == "/api/get";
+        return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(exact ? record : $"[{record}]")
+        };
+    });
+    using var client = new HttpClient(handler) { BaseAddress = new Uri("https://lrclib.net") };
+    using var service = new LyricsService(client, cachePath);
+    service.UpdateFallbackProvider(LyricsFallbackProvider.None);
+    Assert((await service.GetLyricsAsync(snapshot, CancellationToken.None)).Status == LyricsLookupStatus.Unavailable,
+        "HTTP failures must be reported as unavailable");
+    recovered = true;
+    Assert((await service.GetLyricsAsync(snapshot, CancellationToken.None)).Status == LyricsLookupStatus.Found,
+        "same track must recover after a transient network failure");
+    if (Directory.Exists(cachePath)) Directory.Delete(cachePath, true);
 }
 
 async Task VerifyPersistentLyricsCacheAsync()

@@ -127,7 +127,7 @@ internal sealed class LyricsService : IDisposable
             }
 
             var result = await LookupCoreAsync(snapshot, cancellationToken);
-            if (result.Status is not LyricsLookupStatus.Unavailable)
+            if (result.Status is LyricsLookupStatus.Found or LyricsLookupStatus.Instrumental)
             {
                 lock (_cacheLock)
                 {
@@ -272,7 +272,7 @@ internal sealed class LyricsService : IDisposable
             record = await GetRecordAsync(exactPath, cancellationToken);
         }
 
-        if (record is null)
+        if (record is null || (!record.Instrumental && string.IsNullOrWhiteSpace(record.SyncedLyrics)))
         {
             var searchPath = BuildQuery(
                 "/api/search",
@@ -280,7 +280,18 @@ internal sealed class LyricsService : IDisposable
                 ("artist_name", snapshot.Artist));
 
             var records = await GetRecordsAsync(searchPath, cancellationToken);
-            record = SelectBestMatch(records, snapshot);
+            record = SelectBestMatch(records, snapshot) ?? record;
+            if (record is null || (!record.Instrumental && string.IsNullOrWhiteSpace(record.SyncedLyrics)))
+            {
+                // Media apps use different separators for collaborations. Search the
+                // title broadly, but retain artist/duration scoring before accepting.
+                var titleRecords = await GetRecordsAsync(
+                    BuildQuery("/api/search", ("track_name", lookupTitle)), cancellationToken);
+                var synced = SelectBestMatch(titleRecords
+                    .Where(candidate => !string.IsNullOrWhiteSpace(candidate.SyncedLyrics))
+                    .ToArray(), snapshot);
+                record = synced ?? record;
+            }
         }
 
         return CreateResult(record);

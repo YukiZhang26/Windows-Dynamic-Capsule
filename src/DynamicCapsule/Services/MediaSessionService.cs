@@ -11,6 +11,10 @@ internal sealed class MediaSessionService : IDisposable
 {
     private const int MaximumArtworkBytes = 12 * 1024 * 1024;
 
+    internal static bool IsVideoPlayback(Windows.Media.MediaPlaybackType? type, string source) =>
+        type == Windows.Media.MediaPlaybackType.Video ||
+        (type is null && source.Equals("com.bilibili.bilibiliPC", StringComparison.OrdinalIgnoreCase));
+
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
@@ -18,6 +22,7 @@ internal sealed class MediaSessionService : IDisposable
     private string? _artworkIdentity;
     private byte[]? _cachedArtwork;
     private bool _disposed;
+    private System.Threading.Timer? _sessionPollTimer;
 
     internal event Action<MediaSnapshot?>? SnapshotChanged;
     internal event Action<string>? StatusChanged;
@@ -34,8 +39,9 @@ internal sealed class MediaSessionService : IDisposable
             _manager.CurrentSessionChanged += OnCurrentSessionChanged;
             _manager.SessionsChanged += OnSessionsChanged;
 
-            BindCurrentSession();
             await RefreshSnapshotAsync();
+            _sessionPollTimer = new System.Threading.Timer(
+                _ => { _ = RefreshSnapshotAsync(); }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
 
             return true;
         }
@@ -156,6 +162,7 @@ internal sealed class MediaSessionService : IDisposable
         }
 
         _disposed = true;
+        _sessionPollTimer?.Dispose();
         DetachCurrentSession();
 
         if (_manager is not null)
@@ -170,7 +177,6 @@ internal sealed class MediaSessionService : IDisposable
         GlobalSystemMediaTransportControlsSessionManager sender,
         CurrentSessionChangedEventArgs args)
     {
-        BindCurrentSession();
         _ = RefreshSnapshotAsync();
     }
 
@@ -178,13 +184,12 @@ internal sealed class MediaSessionService : IDisposable
         GlobalSystemMediaTransportControlsSessionManager sender,
         SessionsChangedEventArgs args)
     {
-        BindCurrentSession();
         _ = RefreshSnapshotAsync();
     }
 
-    private void BindCurrentSession()
+    private void BindCurrentSession(GlobalSystemMediaTransportControlsSession? nextSession)
     {
-        var nextSession = _manager?.GetCurrentSession();
+        if (ReferenceEquals(nextSession, _currentSession)) return;
 
         DetachCurrentSession();
         _currentSession = nextSession;
@@ -240,10 +245,13 @@ internal sealed class MediaSessionService : IDisposable
             return;
         }
 
-        await _refreshGate.WaitAsync();
+        if (!await _refreshGate.WaitAsync(0)) return;
 
         try
         {
+            var selected = await SelectSessionAsync();
+            if (_disposed) return;
+            BindCurrentSession(selected);
             var session = _currentSession;
             if (session is null)
             {
@@ -318,7 +326,8 @@ internal sealed class MediaSessionService : IDisposable
                 timeline.Position,
                 timeline.EndTime,
                 timeline.LastUpdatedTime,
-                artwork);
+                artwork,
+                IsVideoPlayback(mediaProperties.PlaybackType ?? playbackInfo.PlaybackType, session.SourceAppUserModelId));
 
             StatusChanged?.Invoke(snapshot.IsPlaying ? "正在播放" : "媒体已暂停");
             SnapshotChanged?.Invoke(snapshot);
@@ -331,6 +340,53 @@ internal sealed class MediaSessionService : IDisposable
         {
             _refreshGate.Release();
         }
+    }
+
+    // Prefer actual playing music over launcher webviews, while retaining paused sessions.
+    internal static int ScoreSession(string source, string? title, string? artist,
+        bool playing, bool systemCurrent)
+    {
+        var text = title?.Trim() ?? string.Empty;
+        var path = text.Split('?', '#')[0];
+        var webPath = path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                      || path.EndsWith(".htm", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(artist) && (text.Length == 0 || webPath)) return -1;
+        return (playing ? 100 : 0)
+               + (QqMusicSeekFallbackService.IsQqMusic(source) ? 30 : 0)
+               + (systemCurrent ? 10 : 0)
+               + (!string.IsNullOrWhiteSpace(artist) ? 5 : 0);
+    }
+
+    private async Task<GlobalSystemMediaTransportControlsSession?> SelectSessionAsync()
+    {
+        var manager = _manager;
+        if (manager is null) return null;
+        var systemCurrent = manager.GetCurrentSession();
+        GlobalSystemMediaTransportControlsSession? best = null;
+        var bestScore = -1;
+        foreach (var candidate in manager.GetSessions())
+        {
+            try
+            {
+                var metadata = await candidate.TryGetMediaPropertiesAsync().AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(2));
+                if (_disposed) return null;
+                var playing = candidate.GetPlaybackInfo().PlaybackStatus
+                              == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                var score = ScoreSession(candidate.SourceAppUserModelId, metadata.Title,
+                    metadata.Artist, playing, ReferenceEquals(candidate, systemCurrent));
+                if (score > bestScore)
+                {
+                    best = candidate;
+                    bestScore = score;
+                }
+            }
+            catch (Exception) when (!_disposed)
+            {
+                // A closing or unresponsive app must not hide another valid player.
+            }
+        }
+        return best;
     }
 
     private async Task<bool> ExecuteControlAsync(
@@ -462,6 +518,9 @@ internal sealed class MediaSessionService : IDisposable
         {
             return "Microsoft Edge";
         }
+
+        if (source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return Path.GetFileNameWithoutExtension(source);
 
         var segments = source.Split(
             ['.', '_'],

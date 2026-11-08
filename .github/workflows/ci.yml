@@ -46,6 +46,14 @@ jobs:
           --configuration Release
           --no-build
 
+      - name: Verify media layout and AI task transitions
+        shell: pwsh
+        run: |
+          foreach ($mode in '--media-layout', '--ai-activity', '--video-progress', '--quick-menu') {
+            dotnet run --project ./tests/DynamicCapsule.CoreProbe --configuration Release --no-build -- $mode
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
       - name: Run repository verification scripts
         shell: pwsh
         run: |

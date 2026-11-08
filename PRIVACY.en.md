@@ -2,6 +2,8 @@
 
 [简体中文](PRIVACY.md) | **English** | [繁體中文](PRIVACY.zh-TW.md)
 
+AI activity monitoring is off by default. When enabled, it checks controls in supported AI apps locally and temporarily reads the current browser address to identify ChatGPT and Doubao pages. It does not extract prompts or response text, or store or transmit addresses or conversations. The optional Codex bridge retains only the latest local delivery time and result per state.
+
 Effective date: August 9, 2026
 
 Windows Dynamic Capsule is a desktop utility that runs locally on a Windows
@@ -9,6 +11,8 @@ PC. This policy explains what data the app processes, why it is processed, and
 the controls available to the user.
 
 ## Data processed locally
+
+The music spectrum analyzes the selected player's process audio in memory. It does not use the microphone, record audio to disk, or upload audio. Sampling stops when playback is paused, the music view is hidden, or animations are disabled. Unsupported or ambiguous process sources are not captured; the app does not fall back to system-wide audio capture.
 
 The app may process the following information on the device:
 
