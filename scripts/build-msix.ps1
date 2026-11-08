@@ -466,6 +466,8 @@ $manifestPath = Join-Path $layoutDirectory "AppxManifest.xml"
 $applicationFileNames = @(
     "WindowsDynamicCapsule.exe",
     "WindowsDynamicCapsule.dll")
+# Explicit dependencies from the pinned NAudio.Wasapi package; license ships with the app.
+$signedPayloadFileNames = $applicationFileNames + @("NAudio.Core.dll", "NAudio.Wasapi.dll")
 $executablePayloads = @(
     Get-ChildItem -LiteralPath $layoutDirectory -Recurse -File |
         Where-Object { $_.Extension -in @(".exe", ".dll") }
@@ -494,7 +496,7 @@ if ($invalidPayloads.Count -gt 0) {
 
 $unexpectedUnsignedPayloads = @(
     $unsignedPayloads |
-        Where-Object { $_.Name -notin $applicationFileNames }
+        Where-Object { $_.Name -notin $signedPayloadFileNames }
 )
 if ($unexpectedUnsignedPayloads.Count -gt 0) {
     throw (
@@ -509,7 +511,7 @@ if ($null -ne $certificate) {
         -ToolName "signtool.exe" `
         -BuildToolsVersion $WindowsSdkBuildToolsVersion
 
-    foreach ($applicationFileName in $applicationFileNames) {
+    foreach ($applicationFileName in $signedPayloadFileNames) {
         $applicationFile = Join-Path $layoutDirectory $applicationFileName
         if (-not (Test-Path -LiteralPath $applicationFile -PathType Leaf)) {
             throw "Published application file is missing: $applicationFileName"
@@ -521,7 +523,7 @@ if ($null -ne $certificate) {
             -FilePath $applicationFile
     }
 
-    foreach ($applicationFileName in $applicationFileNames) {
+    foreach ($applicationFileName in $signedPayloadFileNames) {
         $applicationFile = Join-Path $layoutDirectory $applicationFileName
         Assert-CodeSignature `
             -FilePath $applicationFile `

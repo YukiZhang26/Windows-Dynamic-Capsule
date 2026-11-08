@@ -173,8 +173,8 @@ $checks = @(
         Passed =
             $windowXaml.Contains(
                 'x:Name="SecondaryCompactProgressPath"') -and
-            $windowCode.Contains("EventCompactWidth = 132") -and
-            $windowCode.Contains("DualEventCompactWidth = 176") -and
+            $windowCode.Contains("EventCompactWidth = 200") -and
+            $windowCode.Contains("DualEventCompactWidth = 298") -and
             $windowCode.Contains("SecondaryCompactPanel.Visibility")
     },
     [PSCustomObject]@{
@@ -188,7 +188,7 @@ $checks = @(
                 'x:Name="MediaEventCompactProgressPath"') -and
             $windowCode.Contains("IsMediaEventCompact") -and
             $windowCode.Contains("ApplyMediaEventCompact") -and
-            $windowCode.Contains("MediaEventCompactWidth = 176")
+            $windowCode.Contains("MediaEventCompactWidth = 234")
     },
     [PSCustomObject]@{
         Name = "Combined compact media and timer have independent targets"

@@ -20,4 +20,8 @@
     <Company>Yuki Zhang</Company>
     <Description>A lightweight real-time task capsule for Windows.</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
+    <None Update="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

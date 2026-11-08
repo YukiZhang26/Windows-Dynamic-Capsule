@@ -31,9 +31,9 @@ public partial class CapsuleWindow : Window
     private const double DualTaskWidth = 500;
     private const double SideArrowLaneWidth = 30;
     private const double EventAlertHeight = 76;
-    private const double EventCompactWidth = 132;
-    private const double DualEventCompactWidth = 176;
-    private const double MediaEventCompactWidth = 176;
+    private const double EventCompactWidth = 200;
+    private const double DualEventCompactWidth = 298;
+    private const double MediaEventCompactWidth = 234;
     private const double EventCompactHeight = 42;
     private const double ExpandedWidth = 504;
     private const double HostWidth = DualTaskWidth + SideArrowLaneWidth;
@@ -49,6 +49,8 @@ public partial class CapsuleWindow : Window
         TimeSpan.FromMilliseconds(270);
 
     private readonly MediaSessionService _mediaService = new();
+    private readonly AudioSpectrumService _audioSpectrum = new();
+    private readonly DispatcherTimer _spectrumTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly LyricsService _lyricsService = new();
     private readonly DispatcherTimer _lyricsTimer;
     private readonly DispatcherTimer _eventCollapseTimer;
@@ -61,6 +63,10 @@ public partial class CapsuleWindow : Window
     private readonly WindowsClockTimerSyncService
         _windowsClockTimerService = new();
     private readonly ConnectivityEventService _connectivityEventService = new();
+    private AiActivityMonitor? _aiMonitor;
+    private AiActivityMonitor.Row[] _observedAi = [], _shownAi = [];
+    private readonly Dictionary<string, AiActivityMonitor.Row> _codexRows = new();
+    private int _aiGeneration;
     private readonly BrowserDownloadProgressService
         _browserDownloadProgressService = new();
 
@@ -76,6 +82,8 @@ public partial class CapsuleWindow : Window
     private CancellationTokenSource? _lyricsLookupCancellation;
     private LyricsLookupResult? _lyricsResult;
     private string? _lyricsTrackIdentity;
+    private DateTimeOffset _lyricsRetryAt = DateTimeOffset.MaxValue;
+    private int _lyricsRetryCount;
     private TimeSpan _timelineAnchorPosition;
     private DateTimeOffset _timelineAnchorCapturedAt;
     private bool _timelineIsPlaying;
@@ -87,6 +95,7 @@ public partial class CapsuleWindow : Window
     private bool _isSuppressed;
     private bool _isPaused;
     private bool _isQuickMenuOpen;
+    private bool _isTimerEditorOpen;
     private bool _isMediaScrubbing;
     private double _mediaProgressDurationSeconds = 1;
     private double _mediaScrubPositionSeconds;
@@ -167,12 +176,15 @@ public partial class CapsuleWindow : Window
                                        : 0);
 
     private double DesiredHeight => _isQuickMenuOpen
-        ? ExpandedHeight
+        ? (_isTimerEditorOpen ? 232 : ExpandedHeight)
         : _isPaused
         ? CompactHeight
         : _activeCapsuleEvent is not null
         ? _isMediaExpandedOverEvent
             ? MediaExpandedHeight
+            : _activeCapsuleEvent.Kind == CapsuleEventKind.AiActivity && !IsCompactActiveEvent
+            ? EventAlertHeight + (_activeCapsuleEvent.PrivacyLevel is EventPrivacyLevel.Full or EventPrivacyLevel.Summary
+                ? 24 * Math.Max(0, Math.Min(_shownAi.Length, 3) - 1) : 0)
             : IsCompactActiveEvent
             ? EventCompactHeight
             : EventAlertHeight
@@ -192,6 +204,8 @@ public partial class CapsuleWindow : Window
         _isTopStashed = _settings.TopStashed;
         _accessibilityPreferences = accessibilityPreferences;
         InitializeComponent();
+        _spectrumTimer.Tick += OnSpectrumTick;
+        UpdateSurfacePresentation();
 
         _lyricsTimer = new DispatcherTimer
         {
@@ -230,7 +244,7 @@ public partial class CapsuleWindow : Window
             OnBrowserDownloadEventChanged;
         _browserDownloadProgressService.EventRemoved +=
             OnBrowserDownloadEventRemoved;
-        _eventScheduler.SetPaused(_settings.DoNotDisturb);
+        _eventScheduler.SetPaused(_isPaused);
     }
 
     internal event Action? SettingsRequested;
@@ -270,6 +284,7 @@ public partial class CapsuleWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _spectrumTimer.Start();
         UpdateLayout();
         UpdateTopStashPresentation(animate: false, DesiredHeight);
         PositionOnTargetMonitor();
@@ -281,6 +296,7 @@ public partial class CapsuleWindow : Window
         }
 
         _localTaskPipeService.Start();
+        ConfigureAiMonitor();
         _windowsClockTimerService.Start();
         _connectivityEventService.Start();
         _browserDownloadProgressService.Start();
@@ -290,6 +306,12 @@ public partial class CapsuleWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        _aiGeneration++;
+        _aiMonitor?.Dispose();
+        _aiMonitor = null;
+        _spectrumTimer.Stop();
+        _spectrumTimer.Tick -= OnSpectrumTick;
+        _audioSpectrum.Dispose();
         StopSurfaceResizeAnimation();
         _source?.RemoveHook(WindowMessageHook);
         _source = null;
@@ -374,7 +396,7 @@ public partial class CapsuleWindow : Window
         }
 
         _isPaused = isPaused;
-        _eventScheduler.SetPaused(isPaused || _settings.DoNotDisturb);
+        _eventScheduler.SetPaused(isPaused);
         if (isPaused)
         {
             _isQuickMenuOpen = false;
@@ -399,6 +421,9 @@ public partial class CapsuleWindow : Window
         var previouslyAnimated = ShouldAnimate;
         var previousSettings = _settings;
         _settings = settings.Normalize();
+        if (IsLoaded && previousSettings.MonitorAiActivity != _settings.MonitorAiActivity)
+            ConfigureAiMonitor();
+        UpdateSurfacePresentation();
         _lyricsService.UpdateFallbackProvider(
             _settings.LyricsFallbackProvider);
         var topStashChanged =
@@ -409,7 +434,7 @@ public partial class CapsuleWindow : Window
             _eventPolicyEngine.Evaluate(
                 capsuleEvent,
                 _settings).CapsuleEvent);
-        _eventScheduler.SetPaused(_isPaused || _settings.DoNotDisturb);
+        _eventScheduler.SetPaused(_isPaused);
 
         if (previousSettings.MonitorTarget != _settings.MonitorTarget)
         {
@@ -460,6 +485,8 @@ public partial class CapsuleWindow : Window
         {
             ApplySecondaryEvent(_secondaryCapsuleEvent);
         }
+        UpdateCompactVisibility();
+        UpdateSurfacePresentation();
     }
 
     internal bool ToggleExpandedFromAccessibility()
@@ -735,10 +762,52 @@ public partial class CapsuleWindow : Window
             Math.Max(1, e.NewSize.Height / 2));
         CapsuleSurface.CornerRadius = new CornerRadius(
             radius);
+        // Clip the entire visual subtree, including transformed animation content.
+        // Border.CornerRadius only rounds its own background, not its children.
+        CapsuleSurface.Clip = new RectangleGeometry(
+            new Rect(0, 0, Math.Max(0, e.NewSize.Width), Math.Max(0, e.NewSize.Height)),
+            radius, radius);
         if (_mediaSnapshot is not null && !_isMediaScrubbing)
         {
             UpdateMediaProgress();
         }
+    }
+
+    private void OnSpectrumTick(object? sender, EventArgs e)
+    {
+        UpdateStashProgress();
+        var visible = !_isSuppressed && !_isPaused && !ShouldStashSurface
+                      && (CompactSpectrum.IsVisible || ExpandedSpectrum.IsVisible);
+        var source = visible && ShouldAnimate && _mediaSnapshot?.IsPlaying == true
+            ? _mediaSnapshot.SourceAppUserModelId : null;
+        _ = _audioSpectrum.SetSourceAsync(source);
+        var bands = source is null ? new float[16] : _audioSpectrum.ReadBands();
+        if (CompactSpectrum.IsVisible) CompactSpectrum.Update(bands, !ShouldAnimate);
+        if (ExpandedSpectrum.IsVisible) ExpandedSpectrum.Update(bands, !ShouldAnimate);
+        CompactSpectrum.ToolTip = ExpandedSpectrum.ToolTip = _audioSpectrum.Status;
+    }
+
+    private void UpdateStashProgress()
+    {
+        if (!ShouldStashSurface) return;
+        var timer = new[] { _activeCapsuleEvent, _secondaryCapsuleEvent }
+            .FirstOrDefault(item => item?.Kind == CapsuleEventKind.Timer);
+        var duration = _mediaSnapshot?.EndTime ?? TimeSpan.Zero;
+        var hasMusic = duration.TotalSeconds > 0;
+        StashMusicProgress.Tag = _mediaSnapshot?.IsVideo == true ? "Video" : null;
+        var hasTimer = timer?.Progress is not null;
+        StashProgressTracks.Visibility = hasMusic || hasTimer ? Visibility.Visible : Visibility.Collapsed;
+        var trackWidth = Math.Max(24, CapsuleSurface.ActualWidth - 64);
+        TopStashHandle.Width = hasMusic || hasTimer ? trackWidth : 84;
+        TopStashHandle.Background = hasMusic || hasTimer ? System.Windows.Media.Brushes.Transparent : (Brush)FindResource("AccentBrush");
+        StashMusicTrack.Visibility = hasMusic ? Visibility.Visible : Visibility.Collapsed;
+        StashTimerTrack.Visibility = hasTimer ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumnSpan(StashMusicTrack, hasTimer ? 1 : 3);
+        Grid.SetColumn(StashTimerTrack, hasMusic ? 2 : 0);
+        Grid.SetColumnSpan(StashTimerTrack, hasMusic ? 1 : 3);
+        var laneWidth = hasMusic && hasTimer ? (trackWidth - 8) / 2 : trackWidth;
+        StashMusicProgress.Width = hasMusic ? laneWidth * Math.Clamp(GetEstimatedPlaybackPosition(duration).TotalSeconds / duration.TotalSeconds, 0, 1) : 0;
+        StashTimerProgress.Width = hasTimer ? laneWidth * GetCompactRingValue(timer!) : 0;
     }
 
     private void ToggleExpanded()
@@ -1257,7 +1326,13 @@ public partial class CapsuleWindow : Window
             ? -Math.Max(0, targetHeight - TopStashVisibleHeight)
             : _settings.TopGap;
         var useMediaSideArrow = !shouldStash && UseMediaSideArrow;
-        var useGenericSideArrow = !shouldStash && UseGenericSideArrow;
+        var expandedMusic = _isMediaExpandedOverEvent || (_activeCapsuleEvent is null && _isExpanded);
+        var useGenericSideArrow = !shouldStash && UseGenericSideArrow && !expandedMusic;
+        var arrowHint = _isMediaExpandedOverEvent || _isEventExpanded || _isExpanded
+            ? "折叠为紧凑胶囊"
+            : "收纳到屏幕顶部";
+        TopStashArrowButton.ToolTip = arrowHint;
+        MediaTopStashArrowButton.ToolTip = arrowHint;
         TopStashArrowButton.Visibility = useGenericSideArrow
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -1265,6 +1340,10 @@ public partial class CapsuleWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
         CapsuleSurface.Padding = GetCapsulePadding();
+        // Content excludes the side-arrow lane; transport controls instead align
+        // with the center of the complete capsule, including that lane.
+        PlaybackControlsTranslate.X =
+            (CapsuleSurface.Padding.Right - CapsuleSurface.Padding.Left) / 2;
         TopStashHandleTranslate.X = UseGenericSideArrow
             ? SideArrowLaneWidth / 2
             : 0;
@@ -1487,10 +1566,13 @@ public partial class CapsuleWindow : Window
         }
 
         var animatedBrush = new SolidColorBrush(currentBrush.Color);
+        var targetColor = targetBrush.Color;
+        if (!_accessibilityPreferences.HighContrast)
+            targetColor.A = (byte)Math.Round(255 * (1 - _settings.BackgroundTransparency / 100));
         CapsuleSurface.Background = animatedBrush;
         var colorAnimation = new ColorAnimation(
             currentBrush.Color,
-            targetBrush.Color,
+            targetColor,
             TimeSpan.FromMilliseconds(220))
         {
             EasingFunction = new CubicEase
@@ -1503,9 +1585,7 @@ public partial class CapsuleWindow : Window
         {
             if (animationVersion == _presentationAnimationVersion)
             {
-                CapsuleSurface.SetResourceReference(
-                    Border.BackgroundProperty,
-                    resourceKey);
+                UpdateSurfacePresentation();
             }
         };
         animatedBrush.BeginAnimation(
@@ -1527,6 +1607,8 @@ public partial class CapsuleWindow : Window
 
         var source = e.OriginalSource as DependencyObject;
         if (FindVisualAncestor<Button>(source) is not null
+            || FindVisualAncestor<System.Windows.Controls.TextBox>(source) is not null
+            || (_isTimerEditorOpen && IsVisualDescendantOf(source, QuickMenuContent))
             || IsVisualDescendantOf(source, MediaProgressHitTarget))
         {
             return;
@@ -1758,7 +1840,16 @@ public partial class CapsuleWindow : Window
             return;
         }
 
-        TopStashChangeRequested?.Invoke(true);
+        // The expanded panel first returns to its compact presentation. Only a
+        // second click on the compact capsule tucks it into the screen edge.
+        if (_isMediaExpandedOverEvent)
+            SetMediaEventExpanded(false);
+        else if (_activeCapsuleEvent is not null && _isEventExpanded)
+            SetLongRunningEventExpanded(false);
+        else if (_activeCapsuleEvent is null && _isExpanded)
+            ToggleExpanded();
+        else
+            TopStashChangeRequested?.Invoke(true);
         e.Handled = true;
     }
 
@@ -1782,8 +1873,50 @@ public partial class CapsuleWindow : Window
 
     private void OnContextCountdownClick(object sender, RoutedEventArgs e)
     {
-        SetQuickMenuOpen(false);
-        CountdownRequested?.Invoke(null);
+        ShowTimerEditor();
+    }
+
+    internal void ShowTimerEditor()
+    {
+        SetQuickMenuOpen(true);
+        if (!_isQuickMenuOpen) return;
+        _isTimerEditorOpen = true;
+        QuickActions.Visibility = Visibility.Collapsed;
+        TimerEditor.Visibility = Visibility.Visible;
+        TimerValidation.Text = "";
+        AnimateWindowSize(DesiredWidth, DesiredHeight);
+        if (ShouldAnimate)
+            TimerEditor.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1,
+                TimeSpan.FromMilliseconds(220)), HandoffBehavior.SnapshotAndReplace);
+        Activate();
+        TimerMinutes.Focus();
+        TimerMinutes.SelectAll();
+    }
+
+    private void OnTimerBackClick(object sender, RoutedEventArgs e)
+    {
+        _isTimerEditorOpen = false;
+        TimerEditor.Visibility = Visibility.Collapsed;
+        QuickActions.Visibility = Visibility.Visible;
+        AnimateWindowSize(DesiredWidth, DesiredHeight);
+    }
+
+    private void OnTimerStartClick(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(TimerMinutes.Text, out var minutes) || minutes < 1 || minutes > 1440)
+        {
+            TimerValidation.Text = "请输入 1–1440 之间的整数分钟";
+            TimerMinutes.Focus();
+            return;
+        }
+        SetQuickMenuOpen(false, animateSize: false);
+        StartCountdown(TimeSpan.FromMinutes(minutes), TimerName.Text.Trim());
+    }
+
+    private void OnTimerEditorKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) { OnTimerStartClick(sender, e); e.Handled = true; }
+        else if (e.Key == Key.Escape) { OnTimerBackClick(sender, e); e.Handled = true; }
     }
 
     private void OnContextCountdownFiveClick(
@@ -1864,6 +1997,12 @@ public partial class CapsuleWindow : Window
         }
 
         _isQuickMenuOpen = isOpen;
+        if (!isOpen)
+        {
+            _isTimerEditorOpen = false;
+            TimerEditor.Visibility = Visibility.Collapsed;
+            QuickActions.Visibility = Visibility.Visible;
+        }
         _presentationAnimationVersion++;
         QuickMenuContent.BeginAnimation(OpacityProperty, null);
         QuickMenuTranslate.BeginAnimation(
@@ -1961,8 +2100,8 @@ public partial class CapsuleWindow : Window
             ? "勿扰：开"
             : "勿扰：关";
         QuickDoNotDisturbButton.ToolTip = _settings.DoNotDisturb
-            ? "胶囊事件弹窗已暂停；点击关闭胶囊勿扰"
-            : "胶囊事件弹窗正常显示；点击开启胶囊勿扰";
+            ? "消息通知已静音，计时和连接提醒不受影响；点击关闭勿扰"
+            : "点击开启勿扰，仅屏蔽消息通知";
     }
 
     private void OnMediaSnapshotChanged(MediaSnapshot? snapshot)
@@ -2053,7 +2192,60 @@ public partial class CapsuleWindow : Window
 
     private void OnLocalTaskEventReceived(CapsuleEvent capsuleEvent)
     {
+        if (capsuleEvent.SourceId == "Codex")
+        {
+            Dispatcher.InvokeAsync(async () =>
+            {
+                if (!_settings.MonitorAiActivity || _aiMonitor == null) return;
+                var row = new AiActivityMonitor.Row("Codex", capsuleEvent.TaskState switch
+                {
+                    CapsuleTaskState.Succeeded => "Completed", CapsuleTaskState.Failed => "Error",
+                    CapsuleTaskState.Cancelled => "Cancelled", _ => "Running"
+                });
+                _codexRows[capsuleEvent.EventId] = row;
+                PublishAiStack();
+                if (row.State == "Running") return;
+                await Task.Delay(6000);
+                if (_aiMonitor != null && _codexRows.TryGetValue(capsuleEvent.EventId, out var current) && ReferenceEquals(current, row))
+                {
+                    _codexRows.Remove(capsuleEvent.EventId);
+                    PublishAiStack();
+                }
+            });
+            return;
+        }
         PublishWithPolicy(capsuleEvent);
+    }
+
+    private void ConfigureAiMonitor()
+    {
+        var generation = ++_aiGeneration;
+        _aiMonitor?.Dispose();
+        _aiMonitor = null;
+        _codexRows.Clear();
+        _observedAi = _shownAi = [];
+        const string id = "ai:activity-stack";
+        _eventScheduler.Remove(id);
+        if (!_settings.MonitorAiActivity) return;
+        _aiMonitor = new AiActivityMonitor(rows => Dispatcher.InvokeAsync(() =>
+        {
+            if (generation != _aiGeneration) return;
+            _observedAi = rows;
+            PublishAiStack();
+        }));
+    }
+
+    private void PublishAiStack()
+    {
+        const string id = "ai:activity-stack";
+        _shownAi = _codexRows.Values.Concat(_observedAi).OrderByDescending(r => r.State == "Running").ToArray();
+        if (_shownAi.Length == 0) { _eventScheduler.Remove(id); return; }
+        var first = _shownAi[0];
+        PublishWithPolicy(new CapsuleEvent(id, CapsuleEventKind.AiActivity, CapsuleEventPriority.Normal,
+            "ai-monitor", _shownAi.Length > 3 ? $"AI 活动 · 另有 {_shownAi.Length - 3} 项" : "AI 活动",
+            first.Source, first.State, null, first.State switch { "Running" => CapsuleTaskState.Running,
+                "Error" => CapsuleTaskState.Failed, "Cancelled" => CapsuleTaskState.Cancelled, _ => CapsuleTaskState.Succeeded },
+            EventPrivacyLevel.Full, DateTimeOffset.UtcNow, null));
     }
 
     private void OnLocalTaskStatusChanged(string status)
@@ -2143,6 +2335,9 @@ public partial class CapsuleWindow : Window
         var wasCompactPrimary = IsCompactActiveEvent;
         var wasMediaCompactPrimary = IsMediaEventCompact;
         var wasMediaExpandedOverEvent = _isMediaExpandedOverEvent;
+        var mediaWithAi = primaryEvent?.Kind == CapsuleEventKind.AiActivity && _mediaSnapshot is not null;
+        var restoreExpandedMedia = primaryEvent is null && previousPrimaryEvent?.Kind == CapsuleEventKind.AiActivity
+                                   && wasMediaExpandedOverEvent && _mediaSnapshot is not null;
         var isSamePrimary = HasSameEventIdentity(
                                 previousPrimaryEvent,
                                 primaryEvent)
@@ -2150,8 +2345,7 @@ public partial class CapsuleWindow : Window
                                 || primaryEvent is null
                                 || previousPrimaryEvent.Kind
                                 == primaryEvent.Kind
-                                && previousPrimaryEvent.TaskState
-                                == primaryEvent.TaskState);
+                                && (mediaWithAi || previousPrimaryEvent.TaskState == primaryEvent.TaskState));
         var isSameSecondary = HasSameEventIdentity(
             previousSecondaryEvent,
             secondaryEvent);
@@ -2159,8 +2353,8 @@ public partial class CapsuleWindow : Window
         if (!isSamePrimary)
         {
             _eventCollapseTimer.Stop();
-            _isMediaExpandedOverEvent = false;
-            _isEventExpanded = IsLongRunningEvent(primaryEvent);
+            _isMediaExpandedOverEvent = mediaWithAi && (_isExpanded || wasMediaExpandedOverEvent);
+            _isEventExpanded = !mediaWithAi && IsLongRunningEvent(primaryEvent);
             if (_isEventExpanded)
             {
                 ScheduleEventCollapse(TimeSpan.FromMilliseconds(2400));
@@ -2169,6 +2363,7 @@ public partial class CapsuleWindow : Window
 
         _activeCapsuleEvent = primaryEvent;
         _secondaryCapsuleEvent = secondaryEvent;
+        if (restoreExpandedMedia) _isExpanded = true;
         UpdateSurfacePresentation();
 
         if (primaryEvent is null)
@@ -2184,7 +2379,7 @@ public partial class CapsuleWindow : Window
                 ? MediaExpandedPadding
                 : new Thickness(12, 0, 12, 0);
 
-            if (previousPrimaryEvent is not null && ShouldAnimate)
+            if (previousPrimaryEvent is not null && ShouldAnimate && !restoreExpandedMedia)
             {
                 if (wasMediaExpandedOverEvent)
                 {
@@ -2217,7 +2412,7 @@ public partial class CapsuleWindow : Window
         _isExpanded = false;
         EventSourceText.Text = primaryEvent.Source;
         EventTitleText.Text = primaryEvent.Title;
-        EventBodyText.Text = string.IsNullOrWhiteSpace(primaryEvent.Message)
+        EventBodyText.Text = primaryEvent.Kind != CapsuleEventKind.AiActivity && string.IsNullOrWhiteSpace(primaryEvent.Message)
             ? GetDefaultEventMessage(primaryEvent)
             : primaryEvent.Message;
 
@@ -2229,16 +2424,16 @@ public partial class CapsuleWindow : Window
         ApplySecondaryEvent(secondaryEvent);
         ApplyCompactEvent(primaryEvent, secondaryEvent);
         UpdateCompactVisibility();
-        CapsuleSurface.Padding = IsCompactActiveEvent
+        CapsuleSurface.Padding = _isMediaExpandedOverEvent ? MediaExpandedPadding : IsCompactActiveEvent
             ? new Thickness(10, 0, 10, 0)
             : new Thickness(16, 10, 16, 10);
 
-        if (!isSamePrimary)
+        if (!isSamePrimary && !mediaWithAi)
         {
             AnimatePrimaryEventContent();
         }
 
-        if (!isSameSecondary && !IsCompactActiveEvent)
+        if (!isSameSecondary && !IsCompactActiveEvent && !_isMediaExpandedOverEvent)
         {
             AnimateSecondaryEventContent(secondaryEvent is not null);
         }
@@ -2683,8 +2878,9 @@ public partial class CapsuleWindow : Window
                    StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsLongRunningEvent(CapsuleEvent? capsuleEvent)
+    private bool IsLongRunningEvent(CapsuleEvent? capsuleEvent)
     {
+        if (capsuleEvent?.Kind == CapsuleEventKind.AiActivity) return _mediaSnapshot is not null;
         return capsuleEvent is not null
                && capsuleEvent.TaskState == CapsuleTaskState.Running
                && capsuleEvent.Kind is CapsuleEventKind.Timer
@@ -2705,7 +2901,26 @@ public partial class CapsuleWindow : Window
             IsIndeterminateDownload(primaryEvent));
         PrimaryCompactGlyphText.Text = GetCompactGlyph(primaryEvent);
         PrimaryCompactTimeText.Text = GetCompactStatusText(primaryEvent);
+        if (primaryEvent.Kind == CapsuleEventKind.Stopwatch)
+        {
+            var time = GetCompactStatusText(primaryEvent);
+            var split = time.LastIndexOf('.');
+            if (split < 0) split = time.LastIndexOf(':');
+            if (split > 0)
+            {
+                PrimaryCompactTimeText.Inlines.Clear();
+                PrimaryCompactTimeText.Inlines.Add(new System.Windows.Documents.Run(time[..split]) { FontSize = 22 });
+                PrimaryCompactTimeText.Inlines.Add(new System.Windows.Documents.Run(time[split..])
+                {
+                    FontSize = 14,
+                    BaselineAlignment = BaselineAlignment.Top
+                });
+            }
+        }
         PrimaryCompactTitleText.Text = primaryEvent.Title;
+        var isTime = primaryEvent.Kind is CapsuleEventKind.Timer or CapsuleEventKind.Stopwatch;
+        PrimaryCompactTitleText.Visibility = isTime ? Visibility.Collapsed : Visibility.Visible;
+        ApplyTimeAccent(primaryEvent, PrimaryCompactTimeText, PrimaryCompactGlyphText, PrimaryCompactProgressPath);
         ApplyMediaEventCompact(primaryEvent);
 
         var hasSecondary = IsLongRunningEvent(secondaryEvent);
@@ -2732,6 +2947,8 @@ public partial class CapsuleWindow : Window
             SecondaryCompactProgressPath,
             IsIndeterminateDownload(secondaryEvent));
         SecondaryCompactGlyphText.Text = GetCompactGlyph(secondaryEvent);
+        SecondaryCompactTimeText.Text = GetCompactStatusText(secondaryEvent);
+        ApplyTimeAccent(secondaryEvent, SecondaryCompactTimeText, SecondaryCompactGlyphText, SecondaryCompactProgressPath);
         SecondaryCompactPanel.ToolTip =
             $"{secondaryEvent.Title} · {GetCompactStatusText(secondaryEvent)}";
     }
@@ -2763,13 +2980,34 @@ public partial class CapsuleWindow : Window
             MediaEventCompactProgressPath,
             IsIndeterminateDownload(capsuleEvent));
         MediaEventCompactGlyphText.Text = GetCompactGlyph(capsuleEvent);
+        var ai = capsuleEvent.Kind == CapsuleEventKind.AiActivity;
+        var logo = ai && capsuleEvent.PrivacyLevel is (EventPrivacyLevel.Full or EventPrivacyLevel.Summary)
+            ? capsuleEvent.Title switch { "Codex" => "Codex", "ChatGPT" or "ChatGPT Web" => "ChatGPT", _ => null } : null;
+        MediaEventCompactActivityPanel.Tag = logo;
+        MediaEventCompactActivityPanel.ToolTip = ai ? "展开 AI 活动" : "展开任务";
+        MediaEventCompactGlyphText.Visibility = logo == null ? Visibility.Visible : Visibility.Hidden;
+        MediaEventCompactTimeText.Text = GetCompactStatusText(capsuleEvent);
+        ApplyTimeAccent(capsuleEvent, MediaEventCompactTimeText, MediaEventCompactGlyphText, MediaEventCompactProgressPath);
         MediaEventCompactContent.ToolTip =
             $"{mediaSnapshot.Title} · {capsuleEvent.Title} · "
             + GetCompactStatusText(capsuleEvent);
     }
 
+    private void ApplyTimeAccent(CapsuleEvent capsuleEvent, TextBlock digits, TextBlock glyph, System.Windows.Shapes.Path ring)
+    {
+        var isTime = capsuleEvent.Kind is CapsuleEventKind.Timer or CapsuleEventKind.Stopwatch;
+        Brush foreground = isTime && !_accessibilityPreferences.HighContrast
+            ? new SolidColorBrush(Color.FromRgb(255, 159, 10))
+            : (Brush)FindResource("PrimaryTextBrush");
+        digits.Foreground = foreground;
+        glyph.Foreground = foreground;
+        ring.Stroke = isTime ? foreground : (Brush)FindResource("ProgressBrush");
+    }
+
     private static string GetCompactGlyph(CapsuleEvent capsuleEvent)
     {
+        if (capsuleEvent.Kind == CapsuleEventKind.AiActivity)
+            return capsuleEvent.TaskState switch { CapsuleTaskState.Succeeded => "✓", CapsuleTaskState.Failed => "!", CapsuleTaskState.Cancelled => "×", _ => "AI" };
         if (IsBrowserDownload(capsuleEvent))
         {
             return "\u2193";
@@ -2798,6 +3036,8 @@ public partial class CapsuleWindow : Window
 
     private static string GetCompactStatusText(CapsuleEvent capsuleEvent)
     {
+        if (capsuleEvent.Kind == CapsuleEventKind.AiActivity)
+            return capsuleEvent.PrivacyLevel is EventPrivacyLevel.Full or EventPrivacyLevel.Summary ? capsuleEvent.Message : "AI";
         if (IsBrowserDownload(capsuleEvent))
         {
             if (capsuleEvent.Progress is { } downloadProgress)
@@ -3075,6 +3315,7 @@ public partial class CapsuleWindow : Window
 
         var (glyph, brush) = ResolveEventGlyph(capsuleEvent);
         SecondaryEventGlyphText.Text = glyph;
+        ApplySourceSymbol(capsuleEvent, SecondaryEventSymbol, SecondaryEventGlyphText);
         SecondaryEventGlyphSurface.Background = brush;
         SecondaryEventTitleText.Text = string.IsNullOrWhiteSpace(
             capsuleEvent.Title)
@@ -3093,12 +3334,28 @@ public partial class CapsuleWindow : Window
     {
         (EventGlyphText.Text, EventGlyphSurface.Background) =
             ResolveEventGlyph(capsuleEvent);
+        ApplySourceSymbol(capsuleEvent, EventSymbol, EventGlyphText);
         StartEventGlyphAnimation(capsuleEvent);
+    }
+
+    private static readonly Geometry BluetoothSymbol = Geometry.Parse("M4,6 L16,17 L10,22 L10,2 L16,7 L4,18");
+    private static readonly Geometry LocationSymbol = Geometry.Parse("M12,22 C10,19 4,13 4,9 A8,8 0 1 1 20,9 C20,13 14,19 12,22 Z M15,9 A3,3 0 1 1 9,9 A3,3 0 1 1 15,9 Z");
+    private static bool IsLocationSource(CapsuleEvent item) =>
+        item.SourceId.Equals("system.location", StringComparison.OrdinalIgnoreCase)
+        || item.Source is "Windows Location" or "Windows Location Service" or "Windows 定位服务" or "位置服务" or "位置資訊服務";
+
+    private static void ApplySourceSymbol(CapsuleEvent item, System.Windows.Shapes.Path path, System.Windows.Controls.TextBlock text)
+    {
+        path.Data = item.Kind == CapsuleEventKind.Bluetooth ? BluetoothSymbol : IsLocationSource(item) ? LocationSymbol : null;
+        path.Visibility = path.Data == null ? Visibility.Collapsed : Visibility.Visible;
+        text.Visibility = path.Data == null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private (string Glyph, Brush Brush) ResolveEventGlyph(
         CapsuleEvent capsuleEvent)
     {
+        if (capsuleEvent.Kind == CapsuleEventKind.AiActivity && capsuleEvent.TaskState == CapsuleTaskState.Running)
+            return ("◌", CreateEventBrush(92, 81, 204));
         if (capsuleEvent.Kind == CapsuleEventKind.Notification)
         {
             return ("!", CreateEventBrush(42, 99, 245));
@@ -3254,12 +3511,16 @@ public partial class CapsuleWindow : Window
 
     private void ApplyEventPrivacyLayout(CapsuleEvent capsuleEvent)
     {
+        var showRows = capsuleEvent.Kind == CapsuleEventKind.AiActivity &&
+                       capsuleEvent.PrivacyLevel is EventPrivacyLevel.Full or EventPrivacyLevel.Summary;
+        AiStatusRows.ItemsSource = showRows ? _shownAi.Take(3) : null;
+        AiStatusRows.Visibility = showRows ? Visibility.Visible : Visibility.Collapsed;
         var isIconOnly =
             capsuleEvent.PrivacyLevel == EventPrivacyLevel.IconOnly;
-        EventTitleText.Visibility = isIconOnly
+        EventTitleText.Visibility = isIconOnly || showRows
             ? Visibility.Collapsed
             : Visibility.Visible;
-        EventDetailRow.Visibility = isIconOnly
+        EventDetailRow.Visibility = isIconOnly || showRows
             ? Visibility.Collapsed
             : Visibility.Visible;
     }
@@ -3394,7 +3655,9 @@ public partial class CapsuleWindow : Window
                 ? snapshot.CanPause
                 : snapshot.CanPlay;
             NextButton.IsEnabled = snapshot.CanGoNext;
-            PlayPauseButton.Content = snapshot.IsPlaying ? "Ⅱ" : "▶";
+            PlayPauseGlyph.Data = Geometry.Parse(snapshot.IsPlaying
+                ? "M 5,1 L 9,1 L 9,25 L 5,25 Z M 17,1 L 21,1 L 21,25 L 17,25 Z"
+                : "M 3,1 L 23,13 L 3,25 Z");
 
             ApplyArtwork(snapshot.Artwork ?? _lyricsResult?.Artwork);
             UpdateMediaProgress();
@@ -3434,6 +3697,8 @@ public partial class CapsuleWindow : Window
         _lyricsLookupCancellation?.Dispose();
 
         _lyricsTrackIdentity = identity;
+        _lyricsRetryCount = 0;
+        _lyricsRetryAt = DateTimeOffset.MaxValue;
         _lyricsResult = null;
         _lyricsLookupCancellation = new CancellationTokenSource();
         LyricsText.Text = "♪ 正在查找歌词…";
@@ -3465,6 +3730,11 @@ public partial class CapsuleWindow : Window
             }
 
             _lyricsResult = result;
+            _lyricsRetryAt = result.Status is LyricsLookupStatus.Unavailable
+                or LyricsLookupStatus.NotFound or LyricsLookupStatus.UnsyncedOnly
+                && _lyricsRetryCount < 3
+                ? DateTimeOffset.UtcNow.AddSeconds(15 * Math.Pow(2, _lyricsRetryCount))
+                : DateTimeOffset.MaxValue;
             if (_mediaSnapshot?.Artwork is null && result.Artwork is not null)
             {
                 ApplyArtwork(result.Artwork);
@@ -3499,6 +3769,15 @@ public partial class CapsuleWindow : Window
     private void OnLyricsTimerTick(object? sender, EventArgs e)
     {
         UpdateMediaProgress();
+        if (DateTimeOffset.UtcNow >= _lyricsRetryAt
+            && _mediaSnapshot is { } retrySnapshot
+            && _lyricsTrackIdentity is { } retryIdentity
+            && _lyricsLookupCancellation is { IsCancellationRequested: false } retryCancellation)
+        {
+            _lyricsRetryAt = DateTimeOffset.MaxValue;
+            _lyricsRetryCount++;
+            _ = LoadLyricsAsync(retrySnapshot, retryIdentity, retryCancellation.Token);
+        }
         if (_lyricsResult?.Status is LyricsLookupStatus.Found)
         {
             UpdateLyricsText();
@@ -3930,6 +4209,15 @@ public partial class CapsuleWindow : Window
         CapsuleSurface.SetResourceReference(
             Border.BackgroundProperty,
             resourceKey);
+        if (!_accessibilityPreferences.HighContrast
+            && TryFindResource(resourceKey) is SolidColorBrush surfaceBrush)
+        {
+            var color = surfaceBrush.Color;
+            color.A = (byte)Math.Round(255 * (1 - _settings.BackgroundTransparency / 100));
+            var background = new SolidColorBrush(color);
+            background.Freeze();
+            CapsuleSurface.Background = background;
+        }
     }
 
     private void UpdateMediaStatusText()
@@ -4021,6 +4309,7 @@ public partial class CapsuleWindow : Window
                 break;
 
             case NativeMethods.WmMouseActivate:
+                if (_isTimerEditorOpen) break;
                 handled = true;
                 return new nint(NativeMethods.MaNoActivate);
 

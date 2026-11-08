@@ -7,7 +7,8 @@ internal enum CapsuleEventKind
     Timer,
     Stopwatch,
     Bluetooth,
-    WiFi
+    WiFi,
+    AiActivity
 }
 
 internal enum CapsuleEventPriority

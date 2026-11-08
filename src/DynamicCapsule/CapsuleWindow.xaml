@@ -1,6 +1,7 @@
 <Window x:Class="DynamicCapsule.CapsuleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DynamicCapsule"
         Title="Windows Dynamic Capsule"
         Width="530"
         Height="286"
@@ -19,6 +20,14 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <Window.Resources>
+        <!-- Generic terminal and chat marks for public builds. -->
+        <DrawingImage x:Key="codexBadge"><DrawingImage.Drawing><DrawingGroup>
+            <GeometryDrawing Brush="#7765CC" Geometry="M2,0 H16 Q18,0 18,2 V16 Q18,18 16,18 H2 Q0,18 0,16 V2 Q0,0 2,0 Z"/>
+            <GeometryDrawing Brush="White" Geometry="M3,5 L8,9 L3,13 V11 L5.5,9 L3,7 Z M9,11 H15 V13 H9 Z"/>
+        </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+        <DrawingImage x:Key="chatgptBadge"><DrawingImage.Drawing>
+            <GeometryDrawing Brush="#BAEADB" Geometry="M3,1 H15 Q18,1 18,4 V12 Q18,15 15,15 H8 L3,18 V15 Q0,15 0,12 V4 Q0,1 3,1 Z"/>
+        </DrawingImage.Drawing></DrawingImage>
         <Style x:Key="MediaButtonStyle"
                TargetType="{x:Type Button}">
             <Setter Property="Width"
@@ -360,9 +369,9 @@
                             ToolTip="收起快捷操作" />
                 </Grid>
 
-                <UniformGrid Grid.Row="1"
+                <UniformGrid x:Name="QuickActions" Grid.Row="1"
                              Margin="0,3,0,0"
-                             Columns="5"
+                             Columns="3"
                              Rows="2">
                     <Button x:Name="QuickToggleButton"
                             Click="OnContextToggleClick"
@@ -373,15 +382,6 @@
                             Content="勿扰：关"
                             Style="{StaticResource QuickMenuButtonStyle}"
                             ToolTip="只控制胶囊事件弹窗，不跟随 Windows 请勿打扰" />
-                    <Button Click="OnContextCountdownFiveClick"
-                            Content="5 分钟"
-                            Style="{StaticResource QuickMenuButtonStyle}" />
-                    <Button Click="OnContextCountdownFifteenClick"
-                            Content="15 分钟"
-                            Style="{StaticResource QuickMenuButtonStyle}" />
-                    <Button Click="OnContextCountdownTwentyFiveClick"
-                            Content="25 分钟"
-                            Style="{StaticResource QuickMenuButtonStyle}" />
                     <Button Click="OnContextCountdownClick"
                             Content="自定义倒计时"
                             Style="{StaticResource QuickMenuButtonStyle}" />
@@ -395,6 +395,49 @@
                             Content="彻底退出"
                             Style="{StaticResource QuickMenuDangerButtonStyle}" />
                 </UniformGrid>
+                <Grid x:Name="TimerEditor" Grid.Row="1" Visibility="Collapsed"
+                      Margin="0,10,0,0" PreviewKeyDown="OnTimerEditorKeyDown">
+                    <Grid.Resources>
+                        <Style TargetType="TextBox">
+                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                            <Setter Property="CaretBrush" Value="{DynamicResource PrimaryTextBrush}"/>
+                            <Setter Property="Background" Value="{DynamicResource SubtleSurfaceBrush}"/>
+                            <Setter Property="Padding" Value="12,8"/>
+                            <Setter Property="FontSize" Value="14"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="12"
+                                                BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Grid.Resources>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="新的倒计时" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <Grid Grid.Row="1" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="12"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="TimerMinutes" Text="25" MaxLength="4" AutomationProperties.Name="时长（分钟）" ToolTip="时长：1–1440 分钟"/>
+                        <TextBox x:Name="TimerName" Grid.Column="2" Text="专注计时" MaxLength="80" AutomationProperties.Name="计时器名称"/>
+                    </Grid>
+                    <TextBlock Grid.Row="2" x:Name="TimerValidation" Margin="2,6,0,0" FontSize="11"
+                               Foreground="{DynamicResource DangerBrush}" AutomationProperties.LiveSetting="Assertive"/>
+                    <Grid Grid.Row="3" VerticalAlignment="Bottom">
+                        <TextBlock Text="分钟 · Enter 开始" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="返回" Focusable="True" Click="OnTimerBackClick" Width="70" Height="36" Style="{StaticResource QuickMenuButtonStyle}"/>
+                            <Button Content="开始" Focusable="True" Click="OnTimerStartClick" Width="84" Height="36" Style="{StaticResource QuickMenuButtonStyle}"
+                                    Background="{DynamicResource AccentBrush}" Foreground="White"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
             </Grid>
 
             <StackPanel x:Name="CompactContent"
@@ -501,7 +544,8 @@
                                TextTrimming="CharacterEllipsis" />
                 </StackPanel>
 
-                <TextBlock x:Name="MediaCompactPlaybackIcon"
+                <local:SpectrumView x:Name="CompactSpectrum" Grid.Column="2" Width="22" Height="22" Margin="4,0,0,0" VerticalAlignment="Center" ToolTip="当前播放器的真实音频频谱"/>
+                <TextBlock x:Name="MediaCompactPlaybackIcon" Visibility="Collapsed"
                            Grid.Column="2"
                            Margin="10,0,0,0"
                            VerticalAlignment="Center"
@@ -580,26 +624,37 @@
                             Background="{DynamicResource BorderBrush}" />
 
                     <Grid x:Name="MediaEventCompactActivityPanel"
-                          Width="24"
+                          Width="82"
                           Height="24"
                           Cursor="Hand"
                           ToolTip="展开计时器"
                           VerticalAlignment="Center">
-                        <Ellipse Stroke="{DynamicResource ProgressTrackBrush}"
+                        <Ellipse Width="24" HorizontalAlignment="Left" Stroke="{DynamicResource ProgressTrackBrush}"
                                  StrokeThickness="2.5" />
                         <Path x:Name="MediaEventCompactProgressPath"
+                              Width="24" HorizontalAlignment="Left"
                               Stroke="{DynamicResource ProgressBrush}"
                               StrokeEndLineCap="Round"
                               StrokeStartLineCap="Round"
                               StrokeThickness="2.5" />
                         <TextBlock x:Name="MediaEventCompactGlyphText"
-                                   HorizontalAlignment="Center"
+                                   Width="24" TextAlignment="Center" HorizontalAlignment="Left"
                                    VerticalAlignment="Center"
                                    FontFamily="{StaticResource CapsuleFont}"
                                    FontSize="8"
                                    FontWeight="Bold"
                                    Foreground="{DynamicResource PrimaryTextBrush}"
                                    Text="◷" />
+                        <TextBlock x:Name="MediaEventCompactTimeText" Margin="29,0,0,0" VerticalAlignment="Center"
+                                   FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <Image Width="18" Height="18" Margin="3,0,0,0" HorizontalAlignment="Left" IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Style><Style TargetType="Image"><Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Tag, ElementName=MediaEventCompactActivityPanel}" Value="Codex"><Setter Property="Source" Value="{DynamicResource codexBadge}"/><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding Tag, ElementName=MediaEventCompactActivityPanel}" Value="ChatGPT"><Setter Property="Source" Value="{DynamicResource chatgptBadge}"/><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style></Image.Style>
+                        </Image>
                     </Grid>
                 </StackPanel>
             </Grid>
@@ -640,7 +695,7 @@
                                 VerticalAlignment="Center">
                         <TextBlock x:Name="PrimaryCompactTimeText"
                                    FontFamily="{StaticResource CapsuleFont}"
-                                   FontSize="11"
+                                   FontSize="22" Typography.NumeralAlignment="Tabular"
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource PrimaryTextBrush}"
                                    Text="00:00" />
@@ -662,25 +717,28 @@
                             Visibility="Collapsed" />
 
                     <Grid x:Name="SecondaryCompactPanel"
-                          Width="24"
+                          Width="82"
                           Height="24"
                           VerticalAlignment="Center"
                           Visibility="Collapsed">
-                        <Ellipse Stroke="{DynamicResource ProgressTrackBrush}"
+                        <Ellipse Width="24" HorizontalAlignment="Left" Stroke="{DynamicResource ProgressTrackBrush}"
                                  StrokeThickness="2.5" />
                         <Path x:Name="SecondaryCompactProgressPath"
+                              Width="24" HorizontalAlignment="Left"
                               Stroke="{DynamicResource ProgressBrush}"
                               StrokeEndLineCap="Round"
                               StrokeStartLineCap="Round"
                               StrokeThickness="2.5" />
                         <TextBlock x:Name="SecondaryCompactGlyphText"
-                                   HorizontalAlignment="Center"
+                                   Width="24" TextAlignment="Center" HorizontalAlignment="Left"
                                    VerticalAlignment="Center"
                                    FontFamily="{StaticResource CapsuleFont}"
                                    FontSize="8"
                                    FontWeight="Bold"
                                    Foreground="{DynamicResource PrimaryTextBrush}"
                                    Text="↗" />
+                        <TextBlock x:Name="SecondaryCompactTimeText" Margin="29,0,0,0" VerticalAlignment="Center"
+                                   FontSize="11" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource PrimaryTextBrush}"/>
                     </Grid>
                 </StackPanel>
             </Grid>
@@ -719,6 +777,8 @@
                             <RotateTransform x:Name="EventGlyphRotate" />
                         </TransformGroup>
                     </Border.RenderTransform>
+                    <Grid>
+                    <Path x:Name="EventSymbol" Width="22" Height="24" Stretch="Uniform" Stroke="{DynamicResource AccentTextBrush}" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
                     <TextBlock x:Name="EventGlyphText"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
@@ -727,6 +787,7 @@
                                FontWeight="Bold"
                                Foreground="{DynamicResource AccentTextBrush}"
                                Text="!" />
+                    </Grid>
                 </Border>
 
                 <StackPanel Grid.Column="2"
@@ -753,7 +814,7 @@
                                    Text="● 已固定"
                                    Visibility="Collapsed" />
                     </Grid>
-                    <TextBlock x:Name="EventTitleText"
+                        <TextBlock x:Name="EventTitleText"
                                Margin="0,2,0,0"
                                FontFamily="{StaticResource CapsuleFont}"
                                FontSize="13"
@@ -761,6 +822,31 @@
                                Foreground="{DynamicResource PrimaryTextBrush}"
                                Text="新通知"
                                TextTrimming="CharacterEllipsis" />
+                    <ItemsControl x:Name="AiStatusRows" Visibility="Collapsed" Margin="0,2,0,0">
+                        <ItemsControl.ItemTemplate><DataTemplate>
+                            <Grid Height="24"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <DockPanel VerticalAlignment="Center">
+                                    <Image Width="18" Height="18" Margin="0,0,6,0" RenderOptions.BitmapScalingMode="HighQuality" IsHitTestVisible="False">
+                                        <Image.Style><Style TargetType="Image"><Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Source}" Value="Codex"><Setter Property="Source" Value="{DynamicResource codexBadge}"/><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Source}" Value="ChatGPT"><Setter Property="Source" Value="{DynamicResource chatgptBadge}"/><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Source}" Value="ChatGPT Web"><Setter Property="Source" Value="{DynamicResource chatgptBadge}"/><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style></Image.Style>
+                                    </Image>
+                                    <TextBlock Text="{Binding Source}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                </DockPanel>
+                                <Border Grid.Column="1" Padding="7,1" CornerRadius="8" Margin="6,2,0,2">
+                                    <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="#343F88FE"/>
+                                        <Style.Triggers><DataTrigger Binding="{Binding State}" Value="Completed"><Setter Property="Background" Value="#3842BD83"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding State}" Value="Error"><Setter Property="Background" Value="#48E85E64"/></DataTrigger></Style.Triggers>
+                                    </Style></Border.Style>
+                                    <TextBlock Text="{Binding Badge}" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
+                        </DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <Grid x:Name="EventDetailRow"
                           Margin="0,2,0,0">
                         <Grid.ColumnDefinitions>
@@ -840,6 +926,8 @@
                             VerticalAlignment="Center"
                             Background="{DynamicResource AccentBrush}"
                             CornerRadius="12">
+                        <Grid>
+                        <Path x:Name="SecondaryEventSymbol" Width="13" Height="15" Stretch="Uniform" Stroke="{DynamicResource AccentTextBrush}" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
                         <TextBlock x:Name="SecondaryEventGlyphText"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
@@ -848,6 +936,7 @@
                                    FontWeight="Bold"
                                    Foreground="{DynamicResource AccentTextBrush}"
                                    Text="↗" />
+                        </Grid>
                     </Border>
 
                     <StackPanel Grid.Column="2"
@@ -988,6 +1077,8 @@
                           PreviewMouseMove="OnMediaProgressPreviewMouseMove"
                           PreviewMouseLeftButtonUp="OnMediaProgressPreviewMouseLeftButtonUp"
                           ToolTip="点击或拖动以调整播放位置">
+                        <local:SpectrumView x:Name="ExpandedSpectrum" Height="26" BarCount="80" GradientStyle="True"
+                                            VerticalAlignment="Bottom" Margin="0,0,0,16" IsHitTestVisible="False"/>
                         <Border Height="5"
                                 VerticalAlignment="Center"
                                 Background="#46FFFFFF"
@@ -1022,34 +1113,46 @@
                                Text="−0:00" />
                 </Grid>
 
-                <StackPanel Grid.Row="2"
+                <Grid x:Name="PlaybackControls" Grid.Row="2"
                             Grid.ColumnSpan="5"
                             HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Orientation="Horizontal">
+                            VerticalAlignment="Center">
+                    <Grid.RenderTransform><TranslateTransform x:Name="PlaybackControlsTranslate" /></Grid.RenderTransform>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions>
                     <Button x:Name="PreviousButton"
+                            Grid.Column="0" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnPreviousButtonClick"
-                            Content="⏮"
                             IsEnabled="False"
                             Style="{StaticResource ExpandedMediaButtonStyle}"
-                            ToolTip="上一首" />
+                            ToolTip="上一首" AutomationProperties.Name="上一首">
+                        <Path Width="30" Height="23" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Data="M 15,1 Q 15,0 14,1 L 1,10 Q 0,11 1,12 L 14,21 Q 15,22 15,21 Z M 30,1 Q 30,0 29,1 L 16,10 Q 15,11 16,12 L 29,21 Q 30,22 30,21 Z"/>
+                    </Button>
                     <Button x:Name="PlayPauseButton"
+                            Grid.Column="1" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnPlayPauseButtonClick"
-                            Content="▶"
                             IsEnabled="False"
                             Style="{StaticResource PrimaryMediaButtonStyle}"
-                            ToolTip="播放或暂停" />
+                            ToolTip="播放或暂停" AutomationProperties.Name="播放或暂停">
+                        <Path x:Name="PlayPauseGlyph" Width="24" Height="26" Stretch="Uniform"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Data="M 3,1 L 23,13 L 3,25 Z"/>
+                    </Button>
                     <Button x:Name="NextButton"
+                            Grid.Column="2" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnNextButtonClick"
-                            Content="⏭"
                             IsEnabled="False"
                             Style="{StaticResource ExpandedMediaButtonStyle}"
-                            ToolTip="下一首" />
-                </StackPanel>
+                            ToolTip="下一首" AutomationProperties.Name="下一首">
+                        <Path Width="30" Height="23" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Data="M 0,1 Q 0,0 1,1 L 14,10 Q 15,11 14,12 L 1,21 Q 0,22 0,21 Z M 15,1 Q 15,0 16,1 L 29,10 Q 30,11 29,12 L 16,21 Q 15,22 15,21 Z"/>
+                    </Button>
+                </Grid>
             </Grid>
             <Border x:Name="TopStashHandle"
                     Width="84"
-                    Height="6"
+                    Height="3"
+                    Margin="0,0,0,1.5"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Bottom"
                     Background="#FF7288FF"
@@ -1059,6 +1162,20 @@
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="TopStashHandleTranslate" />
                 </Border.RenderTransform>
+                <Grid x:Name="StashProgressTracks" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <Border x:Name="StashMusicTrack" Background="#FF30343C" CornerRadius="3">
+                        <Border x:Name="StashMusicProgress" HorizontalAlignment="Left" CornerRadius="3">
+                            <Border.Style><Style TargetType="Border">
+                                <Setter Property="Background" Value="#FFFF9F0A"/>
+                                <Style.Triggers><Trigger Property="Tag" Value="Video"><Setter Property="Background" Value="#FFC4A1FF"/></Trigger></Style.Triggers>
+                            </Style></Border.Style>
+                        </Border>
+                    </Border>
+                    <Border x:Name="StashTimerTrack" Grid.Column="2" Background="#FF30343C" CornerRadius="3">
+                        <Border x:Name="StashTimerProgress" Background="#FF64D2FF" HorizontalAlignment="Left" CornerRadius="3"/>
+                    </Border>
+                </Grid>
             </Border>
             <Button x:Name="TopStashArrowButton"
                     Margin="0,0,-26,0"

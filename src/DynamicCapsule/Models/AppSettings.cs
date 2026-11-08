@@ -30,9 +30,11 @@ internal sealed record AppSettings
     public MonitorTargetMode MonitorTarget { get; init; } =
         MonitorTargetMode.FollowActiveWindow;
     public double TopGap { get; init; } = DefaultTopGap;
+    public double BackgroundTransparency { get; init; } = 20;
     public bool EnableAnimations { get; init; } = true;
     public bool HideInFullscreen { get; init; } = true;
     public bool DoNotDisturb { get; init; }
+    public bool MonitorAiActivity { get; init; }
     public bool TopStashed { get; init; }
     public bool StartWithWindows { get; init; }
     public EventPrivacyLevel PrivacyLevel { get; init; } =
@@ -62,6 +64,8 @@ internal sealed record AppSettings
             SchemaVersion = CurrentSchemaVersion,
             MonitorTarget = monitorTarget,
             TopGap = topGap,
+            BackgroundTransparency = double.IsFinite(BackgroundTransparency)
+                ? Math.Clamp(BackgroundTransparency, 0, 80) : 20,
             PrivacyLevel = privacyLevel,
             LyricsFallbackProvider = lyricsFallbackProvider,
             NotificationAllowList = NormalizeSourceList(NotificationAllowList),

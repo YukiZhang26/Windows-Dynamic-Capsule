@@ -3,12 +3,22 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Shapes;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using Button = System.Windows.Controls.Button;
+using CheckBox = System.Windows.Controls.CheckBox;
 
 namespace DynamicCapsule;
 
 public partial class SettingsWindow : Window
 {
     private readonly bool _topStashed;
+    private bool _reduceMotion;
+    private Button? _pressedButton;
+    private bool AnimateControls => !_reduceMotion && EnableAnimationsCheckBox.IsChecked == true;
+    private CheckBox[] MotionSwitches => [EnableAnimationsCheckBox, HideInFullscreenCheckBox,
+        StartWithWindowsCheckBox, DoNotDisturbCheckBox, AiMonitorCheckBox];
 
     internal SettingsWindow(
         AppSettings settings,
@@ -25,9 +35,14 @@ public partial class SettingsWindow : Window
                 ? 1
                 : 0;
         TopGapSlider.Value = settings.TopGap;
+        TransparencySlider.Value = settings.BackgroundTransparency;
+        TransparencyValueText.Text = $"{TransparencySlider.Value:0}%";
+        TransparencySlider.ValueChanged += (_, _) =>
+            TransparencyValueText.Text = $"{TransparencySlider.Value:0}%";
         EnableAnimationsCheckBox.IsChecked = settings.EnableAnimations;
         HideInFullscreenCheckBox.IsChecked = settings.HideInFullscreen;
         DoNotDisturbCheckBox.IsChecked = settings.DoNotDisturb;
+        AiMonitorCheckBox.IsChecked = settings.MonitorAiActivity;
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
         LyricsFallbackProviderCombo.SelectedIndex =
             settings.LyricsFallbackProvider == LyricsFallbackProvider.QqMusic
@@ -46,6 +61,28 @@ public partial class SettingsWindow : Window
         UpdateNotificationStatus(
             notificationStatus,
             notificationStatusMessage);
+        foreach (var toggle in MotionSwitches)
+        {
+            toggle.Loaded += (_, _) => UpdateSwitch(toggle, false);
+            toggle.Checked += OnSwitchChanged;
+            toggle.Unchecked += OnSwitchChanged;
+        }
+        SettingsTabs.SelectionChanged += (_, e) =>
+        {
+            if (ReferenceEquals(e.Source, SettingsTabs) && IsLoaded) AnimatePage();
+        };
+        PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            var node = e.OriginalSource as DependencyObject;
+            while (node is Visual && node is not Button) node = VisualTreeHelper.GetParent(node);
+            if (node is Button button)
+            {
+                _pressedButton = button;
+                AnimateButton(button, 0.96);
+            }
+        };
+        PreviewMouseLeftButtonUp += (_, _) => ReleaseButton();
+        LostMouseCapture += (_, _) => ReleaseButton();
     }
 
     internal AppSettings? SavedSettings { get; private set; }
@@ -106,6 +143,8 @@ public partial class SettingsWindow : Window
     internal void ApplyAccessibilityPreferences(
         AccessibilityPreferences preferences)
     {
+        _reduceMotion = preferences.ReduceMotion || preferences.HighContrast;
+        if (_reduceMotion) ResetMotion();
         SystemAccessibilityText.Text = preferences switch
         {
             { HighContrast: true, ReduceMotion: true } =>
@@ -121,6 +160,84 @@ public partial class SettingsWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         MonitorTargetCombo.Focus();
+        AnimatePage();
+    }
+
+    private void OnSwitchChanged(object sender, RoutedEventArgs e)
+    {
+        if (!AnimateControls) ResetMotion();
+        UpdateSwitch((CheckBox)sender, AnimateControls);
+    }
+
+    private void UpdateSwitch(CheckBox toggle, bool animate)
+    {
+        toggle.ApplyTemplate();
+        if (toggle.Template.FindName("Knob", toggle) is not FrameworkElement knob
+            || knob.RenderTransform is not TranslateTransform translation) return;
+        if (translation.IsFrozen) knob.RenderTransform = translation = translation.Clone();
+        AnimateValue(translation, TranslateTransform.XProperty,
+            toggle.IsChecked == true ? 18 : 0, animate, 0.22);
+    }
+
+    private static void AnimateValue(Animatable target, DependencyProperty property,
+        double destination, bool animate, double seconds)
+    {
+        var from = (double)target.GetValue(property);
+        target.BeginAnimation(property, null);
+        target.SetValue(property, destination);
+        if (animate)
+            target.BeginAnimation(property, new DoubleAnimation(from, destination, TimeSpan.FromSeconds(seconds))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop
+            }, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void AnimatePage()
+    {
+        if (SettingsTabs.Template.FindName("PageSurface", SettingsTabs) is not FrameworkElement page) return;
+        page.BeginAnimation(OpacityProperty, null);
+        page.Opacity = 1;
+        var translation = (TranslateTransform)page.RenderTransform;
+        if (translation.IsFrozen) page.RenderTransform = translation = translation.Clone();
+        translation.BeginAnimation(TranslateTransform.YProperty, null);
+        translation.Y = AnimateControls ? 8 : 0;
+        AnimateValue(translation, TranslateTransform.YProperty, 0, AnimateControls, 0.26);
+        if (AnimateControls)
+            page.BeginAnimation(OpacityProperty, new DoubleAnimation(0.4, 1, TimeSpan.FromSeconds(0.2))
+            { FillBehavior = FillBehavior.Stop }, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void AnimateButton(Button button, double scale)
+    {
+        if (button.Template.FindName("Surface", button) is not FrameworkElement surface
+            || surface.RenderTransform is not ScaleTransform transform) return;
+        if (transform.IsFrozen) surface.RenderTransform = transform = transform.Clone();
+        AnimateValue(transform, ScaleTransform.ScaleXProperty, scale, AnimateControls, 0.14);
+        AnimateValue(transform, ScaleTransform.ScaleYProperty, scale, AnimateControls, 0.14);
+    }
+
+    private void ReleaseButton()
+    {
+        if (_pressedButton is not { } button) return;
+        _pressedButton = null;
+        AnimateButton(button, 1);
+    }
+
+    private void ResetMotion()
+    {
+        foreach (var toggle in MotionSwitches) UpdateSwitch(toggle, false);
+        if (SettingsTabs.Template?.FindName("PageSurface", SettingsTabs) is FrameworkElement page)
+        {
+            page.BeginAnimation(OpacityProperty, null);
+            page.Opacity = 1;
+            if (page.RenderTransform is TranslateTransform translation)
+            {
+                if (translation.IsFrozen) page.RenderTransform = translation = translation.Clone();
+                AnimateValue(translation, TranslateTransform.YProperty, 0, false, 0);
+            }
+        }
+        ReleaseButton();
     }
 
     private void OnPreviewKeyDown(
@@ -186,9 +303,11 @@ public partial class SettingsWindow : Window
                 ? MonitorTargetMode.PrimaryDisplay
                 : MonitorTargetMode.FollowActiveWindow,
             TopGap = TopGapSlider.Value,
+            BackgroundTransparency = TransparencySlider.Value,
             EnableAnimations = EnableAnimationsCheckBox.IsChecked == true,
             HideInFullscreen = HideInFullscreenCheckBox.IsChecked == true,
             DoNotDisturb = DoNotDisturbCheckBox.IsChecked == true,
+            MonitorAiActivity = AiMonitorCheckBox.IsChecked == true,
             TopStashed = _topStashed,
             StartWithWindows = StartWithWindowsCheckBox.IsChecked == true,
             LyricsFallbackProvider =

@@ -5,6 +5,7 @@ namespace DynamicCapsule.Services;
 internal enum EventPolicyReason
 {
     Allowed,
+    DoNotDisturb,
     BlockedSource,
     SourceNotAllowed
 }
@@ -24,6 +25,11 @@ internal sealed class EventPolicyEngine
     {
         if (capsuleEvent.Kind == CapsuleEventKind.Notification)
         {
+            if (settings.DoNotDisturb)
+            {
+                return Deny(EventPolicyReason.DoNotDisturb);
+            }
+
             if (MatchesSourceList(
                     capsuleEvent,
                     settings.NotificationBlockList))

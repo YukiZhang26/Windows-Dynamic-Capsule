@@ -15,4 +15,5 @@ internal sealed record MediaSnapshot(
     TimeSpan Position,
     TimeSpan EndTime,
     DateTimeOffset TimelineUpdatedAt,
-    byte[]? Artwork);
+    byte[]? Artwork,
+    bool IsVideo = false);
